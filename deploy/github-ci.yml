@@ -1,0 +1,32 @@
+# خط النشر التلقائي — يشغّل الاختبارات قبل كل نشر
+# يُفعَّل تلقائياً عند رفع المشروع إلى GitHub (git init داخل مجلد safety ثم push)
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: تثبيت الاعتماديات
+        run: npm ci
+      - name: تهيئة بيانات الاختبار
+        run: node server/seed.js --force
+      - name: تشغيل الخادم
+        run: node server/index.js &
+      - name: انتظار الجاهزية
+        run: npx wait-on http://localhost:3000 --timeout 30000
+      - name: اختبارات API (87 اختباراً)
+        run: node tests/api.test.js
+      - name: تدقيق المعادلات (18 فحصاً)
+        run: node tests/formulas.audit.js
+
+  # النشر يتم يدوياً أو أضف خطوة deploy هنا بعد ربط الاستضافة (انظر README)

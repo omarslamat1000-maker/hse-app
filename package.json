@@ -1,0 +1,19 @@
+{
+  "name": "hse-platform",
+  "version": "1.0.0",
+  "description": "منصة إدارة الأمن والسلامة والصحة المهنية في مشاريع البنية التحتية",
+  "main": "server/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server/index.js",
+    "seed": "node server/seed.js --force",
+    "test": "node tests/api.test.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "multer": "^2.2.0"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  }
+}
