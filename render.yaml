@@ -1,0 +1,15 @@
+# نشر بنقرة واحدة إلى Render — https://render.com/deploy?repo=https://github.com/omarslamat1000-maker/hse-app
+services:
+  - type: web
+    name: hse-app
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: sh -c "[ -f data/hse.db ] || node server/seed.js --force; node server/index.js"
+    healthCheckPath: /
+    # تنبيه: الخطة المجانية بقرص مؤقت — تُعاد تهيئة البيانات التجريبية مع كل نشر/إعادة تشغيل.
+    # للإنتاج فعّل قرصاً دائماً (خطة مدفوعة) بإزالة التعليق:
+    # disk:
+    #   name: hse-data
+    #   mountPath: /opt/render/project/src/data
+    #   sizeGB: 1

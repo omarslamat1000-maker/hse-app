@@ -29,6 +29,19 @@
 - **أمان**: تشفير كلمات المرور (scrypt)، جلسات HttpOnly، صلاحيات RBAC، تحقق من المدخلات، سجل تدقيق شامل، أرشفة بدل الحذف، نسخ احتياطي.
 - **وضعان نهاري وليلي** وتصميم متجاوب (حاسب / لوحي / هاتف).
 
+## التشغيل الفوري بنقرة واحدة
+
+**عبر GitHub Codespaces (على بنية GitHub مباشرة):**
+افتح <https://github.com/omarslamat1000-maker/hse-app> ← الزر الأخضر **Code** ← تبويب **Codespaces** ← **Create codespace on main**.
+سيثبّت كل شيء ويهيئ البيانات ويشغّل المنصة تلقائياً ويفتح معاينتها — ولجعل الرابط متاحاً لغيرك: تبويب Ports ← بجوار المنفذ 3000 اختر Port Visibility ← Public.
+
+**عبر Render (رابط عام دائم مجاناً):**
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/omarslamat1000-maker/hse-app)
+
+سجّل الدخول بحساب GitHub ← Apply — وخلال دقائق تحصل على رابط `https://hse-app-xxxx.onrender.com`.
+(الخطة المجانية: تنام الخدمة بعد خمول 15 دقيقة وتصحو عند أول زيارة، والقرص مؤقت فتعود البيانات التجريبية مع كل إعادة نشر — الإنتاج الفعلي يحتاج قرصاً دائماً كما في `render.yaml`.)
+
 ## المتطلبات
 
 - **Node.js 22.5 أو أحدث** فقط (قاعدة البيانات SQLite مدمجة عبر `node:sqlite` — لا حاجة لأي تثبيت إضافي).
