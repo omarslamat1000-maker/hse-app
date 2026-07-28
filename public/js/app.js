@@ -178,6 +178,66 @@
     if (btn) btn.hidden = OfflineSync.queueLength() === 0;
   }
 
+  // ===== البث الفوري (SSE) =====
+  let eventSource = null;
+  const ENTITY_ROUTE = {
+    observation: id => `#/observations/${id}`,
+    incident: id => `#/incidents/${id}`,
+    tour: id => `#/tours/${id}`,
+    action: () => '#/actions',
+    permit: () => '#/permits',
+  };
+
+  function criticalBeep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = 880; g.gain.value = 0.06;
+      o.start(); o.stop(ctx.currentTime + 0.18);
+    } catch {}
+  }
+
+  function liveToast(n) {
+    const el = document.createElement('div');
+    el.className = `toast ${['critical', 'escalation'].includes(n.kind) ? 'error' : n.kind === 'warning' ? 'warn' : ''}`;
+    el.style.cursor = 'pointer';
+    el.innerHTML = `<b>${esc(n.title)}</b><div style="font-size:.78rem;color:var(--ink-2);margin-top:2px">${esc(n.body || '')}</div>`;
+    el.onclick = () => {
+      const route = ENTITY_ROUTE[n.entity_type];
+      if (route && n.entity_id) location.hash = route(n.entity_id);
+      el.remove();
+    };
+    document.getElementById('toasts').appendChild(el);
+    setTimeout(() => el.remove(), 8000);
+  }
+
+  function connectStream() {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource('/api/stream');
+    eventSource.onmessage = e => {
+      let n; try { n = JSON.parse(e.data); } catch { return; }
+      unreadCount++;
+      const dot = document.getElementById('notif-dot');
+      if (dot) dot.hidden = false;
+      liveToast(n);
+      if (['critical', 'escalation', 'gosi'].includes(n.kind)) {
+        criticalBeep();
+        // إشعار نظام التشغيل (يظهر حتى والمتصفح بالخلفية)
+        if ('Notification' in window && Notification.permission === 'granted') {
+          try {
+            const os = new Notification(n.title, { body: n.body || '', dir: 'rtl', lang: 'ar', tag: `hse-${n.entity_type}-${n.entity_id}` });
+            os.onclick = () => {
+              window.focus();
+              const route = ENTITY_ROUTE[n.entity_type];
+              if (route && n.entity_id) location.hash = route(n.entity_id);
+            };
+          } catch {}
+        }
+      }
+    };
+  }
+
   // ===== الإشعارات =====
   async function pollNotifications() {
     if (!currentUser) return;
@@ -190,6 +250,8 @@
   }
 
   async function openNotifications() {
+    // طلب إذن إشعارات النظام عند أول تفاعل مع الجرس
+    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     const d = await api('/api/notifications');
     const kindIcon = { critical: '🛑', escalation: '📣', warning: '⚠️', tour: '📍', info: 'ℹ️' };
     const items = d.items.length ? d.items.map(n => `
@@ -272,7 +334,8 @@
     if (currentUser.role === 'contractor' && ['#/dashboard', ''].includes(location.hash)) location.hash = '#/portal';
     await refreshRoute();
     pollNotifications();
-    setInterval(pollNotifications, 60000);
+    setInterval(pollNotifications, 120000); // احتياط — البث الفوري هو القناة الأساسية
+    connectStream();
     if (navigator.onLine) OfflineSync.syncQueue();
   }
 

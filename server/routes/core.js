@@ -186,6 +186,20 @@ coreRouter.delete('/users/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ===== البث الفوري للإشعارات (SSE) =====
+const { addClient, removeClient } = require('../realtime');
+coreRouter.get('/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write(': connected\n\n');
+  addClient(req.user.id, res);
+  req.on('close', () => removeClient(req.user.id, res));
+});
+
 // ===== الإشعارات =====
 coreRouter.get('/notifications', (req, res) => {
   const rows = all(`SELECT * FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 100`, req.user.id);

@@ -1,6 +1,7 @@
 // التصعيد التلقائي للملاحظات والإجراءات المتأخرة + التذكير قبل الاستحقاق
 // المهل قابلة للتخصيص من صفحة «التصعيد والمهل» في حساب مدير النظام
 const { all, run, get } = require('./db');
+const { pushToUser } = require('./realtime');
 
 const DEFAULT_RULES = {
   remind_before_days: 2,      // تنبيه قبل تاريخ الاستحقاق بـ N يوم
@@ -21,12 +22,14 @@ function notifyAdmins(title, body, kind, entityType, entityId) {
   for (const a of admins) {
     run(`INSERT INTO notifications (user_id, title, body, kind, entity_type, entity_id)
          VALUES (?,?,?,?,?,?)`, a.id, title, body, kind, entityType, entityId);
+    pushToUser(a.id, { title, body, kind, entity_type: entityType, entity_id: entityId });
   }
 }
 
 function notifyUser(userId, title, body, kind, entityType, entityId) {
   run(`INSERT INTO notifications (user_id, title, body, kind, entity_type, entity_id)
        VALUES (?,?,?,?,?,?)`, userId, title, body, kind, entityType, entityId);
+  pushToUser(userId, { title, body, kind, entity_type: entityType, entity_id: entityId });
 }
 
 // تنبيه مرة واحدة فقط لكل كيان (تفادي التكرار في كل دورة فحص)
