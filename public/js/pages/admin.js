@@ -389,6 +389,25 @@ window.Pages = window.Pages || {};
             <div id="imp-status" style="font-size:.78rem;color:var(--ink-3);margin-top:.5rem"></div>
           </div>
           <div class="card" style="margin-top:1rem">
+            <h3>🎨 الهوية البصرية</h3>
+            <p style="font-size:.78rem;color:var(--ink-2)">الشعار يظهر في الشريط الجانبي وشاشة الدخول وترويسات التقارير المطبوعة، واللون الأساسي تُشتق منه تدرجات الواجهة كاملة (نهاري وليلي).</p>
+            <form id="brand-form">
+              <div class="form-grid">
+                ${fld('اسم المنصة', `<input name="platform_name" value="${esc(window.BRAND.platform_name || '')}">`)}
+                ${fld('اللون الأساسي', `<div style="display:flex;gap:.5rem;align-items:center">
+                  <input name="primary_color" type="color" value="${esc(window.BRAND.primary_color || '#0e7a43')}" style="width:56px;height:38px;padding:2px">
+                  <button type="button" class="btn sm secondary" id="brand-color-reset">اللون الافتراضي</button></div>`)}
+              </div>
+              <div class="btn-row" style="align-items:center">
+                <span id="brand-logo-preview">${window.brandLogo(34)}</span>
+                <label class="btn secondary sm">⬆ رفع شعار الجهة<input type="file" id="brand-logo" accept=".png,.jpg,.jpeg,.webp" hidden></label>
+                ${window.BRAND.logo ? '<button type="button" class="btn sm danger" id="brand-logo-remove">إزالة الشعار</button>' : ''}
+                <span id="brand-logo-name" style="font-size:.74rem;color:var(--ink-3)"></span>
+              </div>
+              <button class="btn" type="submit" style="margin-top:.8rem">حفظ الهوية</button>
+            </form>
+          </div>
+          <div class="card" style="margin-top:1rem">
             <h3>🔐 مصفوفة الصلاحيات</h3>
             <p style="font-size:.78rem;color:var(--ink-2)">
               حدد ما يستطيع كل دور فعله — تُطبق فوراً على الجميع. صلاحيات مدير النظام كاملة دائماً ولا تُعطل.
@@ -437,6 +456,38 @@ window.Pages = window.Pages || {};
       await api('/api/settings', { method: 'PUT', body });
       toast('تم حفظ الإعدادات');
     });
+    // الهوية البصرية
+    {
+      let logoFile = null, removeLogo = false;
+      const bf = el.querySelector('#brand-form');
+      el.querySelector('#brand-logo').addEventListener('change', e => {
+        logoFile = e.target.files[0] || null; removeLogo = false;
+        el.querySelector('#brand-logo-name').textContent = logoFile ? logoFile.name : '';
+        if (logoFile) el.querySelector('#brand-logo-preview').innerHTML =
+          `<img src="${URL.createObjectURL(logoFile)}" style="height:40px;max-width:90px;object-fit:contain">`;
+      });
+      const rmBtn = el.querySelector('#brand-logo-remove');
+      if (rmBtn) rmBtn.onclick = () => {
+        removeLogo = true; logoFile = null;
+        el.querySelector('#brand-logo-preview').innerHTML = '—';
+        el.querySelector('#brand-logo-name').textContent = 'سيُزال الشعار عند الحفظ';
+      };
+      el.querySelector('#brand-color-reset').onclick = () => { bf.primary_color.value = '#0e7a43'; };
+      bf.addEventListener('submit', async e => {
+        e.preventDefault();
+        const fd = new FormData();
+        fd.append('platform_name', bf.platform_name.value.trim() || 'منصة السلامة');
+        fd.append('primary_color', bf.primary_color.value === '#0e7a43' ? '' : bf.primary_color.value);
+        if (removeLogo) fd.append('remove_logo', '1');
+        if (logoFile) fd.append('logo', logoFile);
+        try {
+          await api('/api/brand', { method: 'POST', body: fd });
+          toast('تم حفظ الهوية — يُعاد التحميل لتطبيقها');
+          setTimeout(() => location.reload(), 800);
+        } catch (err) { toast(err.message, 'error'); }
+      });
+    }
+
     // مصفوفة الصلاحيات
     (async () => {
       const pm = await api('/api/permissions');

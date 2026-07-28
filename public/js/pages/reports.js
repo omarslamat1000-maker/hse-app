@@ -132,7 +132,7 @@ window.Pages = window.Pages || {};
       </div>
       <div class="card">
         <div class="print-header" style="display:flex">
-          <svg width="40" height="40" viewBox="0 0 100 100"><path d="M50 5 L90 20 V48 C90 70 73 88 50 95 C27 88 10 70 10 48 V20 Z" fill="#0e7a43"/><path d="M32 50 L45 63 L70 36" stroke="white" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          ${window.brandLogo(40)}
           <div><div class="o">${esc(a.title)}</div>
             <div style="font-size:.74rem;color:var(--ink-2)">الفترة: ${fmtDate(a.period_from)} ← ${fmtDate(a.period_to)}</div></div>
           <div class="m">صدر: ${fmtDate(a.created_at)}<br>${UI.fmtHijri(a.created_at)}</div>
@@ -159,7 +159,7 @@ window.Pages = window.Pages || {};
       ${filtersHtml || ''}
       <div class="card">
         <div class="print-header" style="display:flex">
-          <svg width="40" height="40" viewBox="0 0 100 100"><path d="M50 5 L90 20 V48 C90 70 73 88 50 95 C27 88 10 70 10 48 V20 Z" fill="#0e7a43"/><path d="M32 50 L45 63 L70 36" stroke="white" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          ${window.brandLogo(40)}
           <div><div class="o">${esc(title)}</div>
           <div style="font-size:.72rem;color:var(--ink-2)">${esc(meta.org || '')}</div></div>
           <div class="m">أُنشئ بواسطة: ${esc(meta.generated_by || '')}<br>${fmtDateTime(meta.generated_at)}<br>${UI.fmtHijri(meta.generated_at)}</div>

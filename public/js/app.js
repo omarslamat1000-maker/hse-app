@@ -27,6 +27,52 @@
   };
   const shieldSvg = (s = 30) => `<svg width="${s}" height="${s}" viewBox="0 0 100 100"><path d="M50 5 L90 20 V48 C90 70 73 88 50 95 C27 88 10 70 10 48 V20 Z" fill="var(--brand)"/><path d="M32 50 L45 63 L70 36" stroke="white" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
+  // ===== الهوية البصرية القابلة للتخصيص =====
+  window.BRAND = { platform_name: 'منصة السلامة', org_name: '', primary_color: '', logo: null };
+  function brandLogo(size = 30) {
+    return window.BRAND.logo
+      ? `<img src="${window.BRAND.logo}" alt="" style="height:${size + 6}px;max-width:${size * 2.6}px;object-fit:contain">`
+      : shieldSvg(size);
+  }
+  window.brandLogo = brandLogo;
+
+  function hexToHsl(hex) {
+    const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex);
+    if (!m) return null;
+    let [r, g, b] = [m[1], m[2], m[3]].map(x => parseInt(x, 16) / 255);
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0; const l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h *= 60;
+    }
+    return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+  }
+  function applyBrand() {
+    const B = window.BRAND;
+    document.title = `${B.platform_name} — إدارة الأمن والسلامة والصحة المهنية`;
+    let styleEl = document.getElementById('brand-style');
+    if (B.primary_color && hexToHsl(B.primary_color)) {
+      const { h, s, l } = hexToHsl(B.primary_color);
+      const c = (ll, ss = s) => `hsl(${h} ${ss}% ${ll}%)`;
+      if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'brand-style'; document.head.appendChild(styleEl); }
+      styleEl.textContent = `
+        :root { --brand:${c(l)}; --brand-hover:${c(Math.max(8, l - 7))}; --brand-soft:${c(94, Math.round(s * .45))}; --brand-soft-2:${c(89, Math.round(s * .45))};
+                --brand-900:${c(Math.max(6, l - 22))}; --brand-700:${c(Math.max(8, l - 12))}; --brand-600:${c(l)}; }
+        :root[data-theme="dark"] { --brand:${c(Math.min(70, l + 12))}; --brand-hover:${c(Math.min(76, l + 18))};
+                --brand-soft:${c(15, Math.round(s * .5))}; --brand-soft-2:${c(20, Math.round(s * .5))}; }`;
+    } else if (styleEl) styleEl.textContent = '';
+  }
+  async function loadBrand() {
+    try {
+      const b = await (await fetch('/api/brand')).json();
+      window.BRAND = { ...window.BRAND, ...b };
+    } catch {}
+    applyBrand();
+  }
+
   // ===== الثيم =====
   function applyTheme(t) {
     document.documentElement.setAttribute('data-theme', t);
@@ -46,8 +92,8 @@
     document.getElementById('app').innerHTML = `
       <div class="login-wrap">
         <div class="login-card">
-          <div class="login-logo">${shieldSvg(46)}
-            <div><div class="t1">منصة السلامة</div>
+          <div class="login-logo">${brandLogo(46)}
+            <div><div class="t1">${esc(window.BRAND.platform_name)}</div>
             <div class="t2">إدارة الأمن والسلامة والصحة المهنية — مشاريع البنية التحتية</div></div>
           </div>
           <form id="login-form">
@@ -124,7 +170,7 @@
       <div class="layout">
         <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
         <aside class="sidebar">
-          <div class="brand">${shieldSvg(34)}<div><div class="t">منصة السلامة</div><div class="s">الأمن والسلامة والصحة المهنية</div></div></div>
+          <div class="brand">${brandLogo(34)}<div><div class="t">${esc(window.BRAND.platform_name)}</div><div class="s">الأمن والسلامة والصحة المهنية</div></div></div>
           <nav class="nav" id="main-nav">${navHtml}</nav>
           <div class="sidebar-footer">v1.0 — ${esc(currentUser.full_name)}</div>
         </aside>
@@ -354,5 +400,5 @@
   }
 
   initTheme();
-  boot();
+  loadBrand().then(boot);
 })();

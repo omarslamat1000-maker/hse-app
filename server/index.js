@@ -20,6 +20,25 @@ app.use((req, res, next) => {
   next();
 });
 
+// الهوية البصرية — عامة (تلزم شاشة الدخول قبل المصادقة)
+const { get: dbGet } = require('./db');
+app.get('/api/brand', (req, res) => {
+  const g = k => dbGet(`SELECT value FROM settings WHERE key = ?`, k)?.value || '';
+  const ext = g('brand_logo_ext');
+  res.json({
+    platform_name: g('platform_name') || 'منصة السلامة',
+    org_name: g('org_name') || '',
+    primary_color: g('primary_color') || '',
+    logo: ext && fs.existsSync(path.join(__dirname, '..', 'data', 'brand-logo' + ext)) ? '/api/brand/logo?v=' + encodeURIComponent(ext) : null,
+  });
+});
+app.get('/api/brand/logo', (req, res) => {
+  const ext = dbGet(`SELECT value FROM settings WHERE key = 'brand_logo_ext'`)?.value;
+  const f = ext && path.join(__dirname, '..', 'data', 'brand-logo' + ext);
+  if (!f || !fs.existsSync(f)) return res.status(404).end();
+  res.sendFile(f);
+});
+
 // المسارات
 app.use('/api/auth', require('./routes/core').authRouter);
 app.use('/api', require('./routes/core').coreRouter);

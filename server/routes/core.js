@@ -290,6 +290,32 @@ coreRouter.get('/attachments', (req, res) => {
     entity_type, Number(entity_id)));
 });
 
+// ===== الهوية البصرية (حفظ) =====
+coreRouter.post('/brand', requireAdmin, upload.single('logo'), (req, res) => {
+  const b = req.body || {};
+  const setKV = (k, v) => run(`INSERT INTO settings (key, value) VALUES (?,?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value`, k, String(v));
+  if (b.platform_name !== undefined) setKV('platform_name', b.platform_name);
+  if (b.org_name !== undefined) setKV('org_name', b.org_name);
+  if (b.primary_color !== undefined) setKV('primary_color', b.primary_color);
+  if (b.remove_logo === '1') {
+    const old = get(`SELECT value FROM settings WHERE key = 'brand_logo_ext'`)?.value;
+    if (old) try { fs.unlinkSync(path.join(__dirname, '..', '..', 'data', 'brand-logo' + old)); } catch {}
+    setKV('brand_logo_ext', '');
+  }
+  if (req.file) {
+    const ext = path.extname(req.file.originalname || '.png').toLowerCase() || '.png';
+    if (!['.png', '.jpg', '.jpeg', '.webp'].includes(ext))
+      return res.status(400).json({ error: 'صيغة الشعار غير مدعومة (PNG/JPG/WebP)' });
+    const dest = path.join(__dirname, '..', '..', 'data', 'brand-logo' + ext);
+    fs.copyFileSync(req.file.path, dest);
+    fs.unlinkSync(req.file.path);
+    setKV('brand_logo_ext', ext);
+  }
+  logAudit(req, 'update', 'brand', null, 'تحديث الهوية البصرية');
+  res.json({ ok: true });
+});
+
 // ===== نسخة احتياطية =====
 coreRouter.get('/backup', requireAdmin, (req, res) => {
   logAudit(req, 'backup', 'system', null, 'تنزيل نسخة احتياطية');
