@@ -288,6 +288,26 @@ textarea { resize: vertical; min-height: 84px; }
 .chip.on { background: var(--brand-soft); color: var(--brand); border-color: var(--brand); opacity: 1; }
 .chip .sw { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
 .chip .cnt { font-weight: 400; font-size: .7rem; }
+
+/* لوحة كانبان الإجراءات التصحيحية */
+.kanban { display: grid; grid-template-columns: repeat(4, minmax(230px, 1fr)); gap: .8rem; overflow-x: auto; align-items: start; }
+.kb-col {
+  background: var(--surface-2); border: 1px solid var(--hairline); border-radius: var(--radius);
+  padding: .6rem; min-height: 180px; transition: background .15s, border-color .15s;
+}
+.kb-col.dragover { background: var(--brand-soft); border-color: var(--brand); }
+.kb-head { display: flex; justify-content: space-between; align-items: center; font-weight: 800; font-size: .82rem; padding: .2rem .3rem .6rem; }
+.kb-head .n { background: var(--surface); border: 1px solid var(--hairline); border-radius: 99px; padding: 0 .55rem; font-size: .72rem; }
+.kb-card {
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow); padding: .6rem .7rem; margin-bottom: .55rem; cursor: grab; font-size: .78rem;
+}
+.kb-card:active { cursor: grabbing; }
+.kb-card.dragging { opacity: .45; }
+.kb-card .ref { font-weight: 800; font-size: .72rem; color: var(--brand); }
+.kb-card .desc { margin: .25rem 0; color: var(--ink); }
+.kb-card .meta { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; font-size: .68rem; color: var(--ink-3); }
+@media (max-width: 900px) { .kanban { grid-template-columns: repeat(4, 240px); } }
 .legend-row { display: flex; gap: 1rem; flex-wrap: wrap; font-size: .76rem; color: var(--ink-2); margin-top: .6rem; }
 .legend-row .li { display: inline-flex; align-items: center; gap: .35rem; }
 .legend-row .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }

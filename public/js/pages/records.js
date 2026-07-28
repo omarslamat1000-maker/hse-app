@@ -476,11 +476,99 @@ window.Pages = window.Pages || {};
         ${tags.length ? fld('الحالة المخصصة', select('status_tag', tags.map(t => ({ value: t, label: t })), params.status_tag)) : ''}
         <label class="fld"><span>المتأخرة فقط</span><input type="checkbox" name="overdue" value="1" style="width:auto" ${params.overdue ? 'checked' : ''}></label>
         <button class="btn sm" type="submit">تصفية</button>
+        <button class="btn sm secondary" type="button" id="act-view-toggle"></button>
         <button class="btn" type="button" id="act-add">+ إجراء جديد</button>
         <a class="btn secondary sm" href="/api/export/actions" download>⬇ تصدير</a>
       </form>
       <div id="act-table"></div>`;
     const tbl = el.querySelector('#act-table');
+
+    // ===== عرض كانبان =====
+    const KB_COLS = [
+      { key: 'open', title: 'مفتوح', statuses: ['open', 'reopened', 'rejected'] },
+      { key: 'in_progress', title: 'جارٍ التنفيذ', statuses: ['in_progress'] },
+      { key: 'pending_verification', title: 'بانتظار التحقق', statuses: ['pending_verification'] },
+      { key: 'closed', title: 'مغلق', statuses: ['closed'] },
+    ];
+    // الحالة المستهدفة عند الإفلات في عمود
+    const DROP_TARGET = { open: 'reopened', in_progress: 'in_progress', pending_verification: 'pending_verification', closed: 'closed' };
+
+    function renderKanban() {
+      tbl.innerHTML = `<div class="kanban">` + KB_COLS.map(col => {
+        const cards = rows.filter(a => col.statuses.includes(a.status));
+        return `<div class="kb-col" data-col="${col.key}">
+          <div class="kb-head"><span>${col.title}</span><span class="n">${cards.length}</span></div>
+          ${cards.map(a => `
+          <div class="kb-card" draggable="true" data-id="${a.id}">
+            <div style="display:flex;justify-content:space-between;gap:.3rem">
+              <span class="ref">${esc(a.ref)}</span>
+              ${badge('priority', a.priority, UI.SEV_CLASS[a.priority])}
+            </div>
+            <div class="desc">${esc(a.description).slice(0, 70)}</div>
+            <div class="progressbar" style="margin:.35rem 0"><div style="width:${a.progress}%"></div></div>
+            <div class="meta">
+              <span>🏗 ${esc(a.project_name).slice(0, 22)}</span>
+              <span>📅 ${fmtDate(a.due_date)}</span>
+              ${a.overdue ? '<span class="badge b-critical">متأخر</span>' : ''}
+              ${UI.tagBadge(a.status_tag)}
+            </div>
+          </div>`).join('') || '<div class="empty-state" style="padding:.8rem;font-size:.75rem">لا توجد بطاقات</div>'}
+        </div>`;
+      }).join('') + `</div>
+      <div style="font-size:.72rem;color:var(--ink-3);margin-top:.5rem">
+        اسحب البطاقة بين الأعمدة لتغيير حالتها — تُطبق قواعد سير العمل (توثيق الإجراءات قبل التحقق، وأدلة التنفيذ قبل الإغلاق)، والنقر يفتح التفاصيل.
+      </div>`;
+
+      let draggedId = null;
+      tbl.querySelectorAll('.kb-card').forEach(card => {
+        card.addEventListener('click', () => actionDetail(rows.find(x => x.id === Number(card.dataset.id))));
+        card.addEventListener('dragstart', e => {
+          draggedId = Number(card.dataset.id);
+          card.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+        });
+        card.addEventListener('dragend', () => card.classList.remove('dragging'));
+      });
+      tbl.querySelectorAll('.kb-col').forEach(colEl => {
+        colEl.addEventListener('dragover', e => { e.preventDefault(); colEl.classList.add('dragover'); });
+        colEl.addEventListener('dragleave', () => colEl.classList.remove('dragover'));
+        colEl.addEventListener('drop', async e => {
+          e.preventDefault();
+          colEl.classList.remove('dragover');
+          const a = rows.find(x => x.id === draggedId);
+          if (!a) return;
+          const colKey = colEl.dataset.col;
+          if (KB_COLS.find(c => c.key === colKey).statuses.includes(a.status)) return; // نفس العمود
+          const to = DROP_TARGET[colKey];
+          let note = '';
+          if (to === 'reopened') {
+            note = await UI.promptDialog('سبب إعادة الفتح');
+            if (!note) return;
+          }
+          try {
+            await api(`/api/actions/${a.id}/transition`, { method: 'POST', body: { to, note } });
+            toast(`تم نقل ${a.ref} إلى «${label('action_status', to)}»`);
+            App.refreshRoute();
+          } catch (err) { toast(err.message, 'error'); }
+        });
+      });
+    }
+
+    function renderTableView() {
+      renderActionsTable();
+    }
+    function applyView() {
+      const view = localStorage.getItem('hse_actions_view') || 'table';
+      el.querySelector('#act-view-toggle').textContent = view === 'table' ? '🗂 عرض كانبان' : '📋 عرض جدول';
+      view === 'kanban' ? renderKanban() : renderTableView();
+    }
+    el.querySelector('#act-view-toggle').onclick = () => {
+      const cur = localStorage.getItem('hse_actions_view') || 'table';
+      localStorage.setItem('hse_actions_view', cur === 'table' ? 'kanban' : 'table');
+      applyView();
+    };
+
+    function renderActionsTable() {
     tbl.innerHTML = UI.dataTable({
       columns: [
         { title: 'المرجع', render: r => `${esc(r.ref)}${r.escalated ? ' <span class="badge b-critical">مصعد</span>' : ''}` },
@@ -500,6 +588,10 @@ window.Pages = window.Pages || {};
       e.stopPropagation();
       actionDetail(rows.find(x => x.id === Number(b.dataset.edit)));
     }));
+    }
+
+    applyView();
+
     el.querySelector('#act-filters').addEventListener('submit', e => {
       e.preventDefault();
       const d = UI.formData(e.target);
