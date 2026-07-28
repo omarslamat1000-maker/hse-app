@@ -205,8 +205,12 @@ window.Pages = window.Pages || {};
         gps = await UI.getLocation();
         m.el.querySelector('#inc-status').textContent = gps ? 'تم تحديد الموقع' : 'تعذر تحديد الموقع';
       };
-      m.el.querySelector('#inc-files').addEventListener('change', e => {
+      m.el.querySelector('#inc-files').addEventListener('change', async e => {
         files = [...e.target.files];
+        if (files.some(f => f.type.startsWith('image/')) &&
+            await UI.confirmDialog('هل تريد التحديد على الصور (سهم/دائرة) قبل الرفع؟', { okText: '✏️ نعم، تحديد' })) {
+          files = await UI.annotateImages(files);
+        }
         m.el.querySelector('#inc-status').textContent = `${files.length} ملف`;
       });
       m.el.querySelector('#inc-save').onclick = async () => {

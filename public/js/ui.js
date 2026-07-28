@@ -216,6 +216,126 @@
     } catch { return file; }
   }
 
+  // ===== محرر التحديد على الصور (سهم/دائرة/مستطيل/خط حر) =====
+  function annotateImage(file) {
+    return new Promise(async resolve => {
+      const bmp = await createImageBitmap(file).catch(() => null);
+      if (!bmp) return resolve(file);
+      const maxDim = 1600;
+      const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+      const W = Math.round(bmp.width * scale), H = Math.round(bmp.height * scale);
+
+      const m = modal({
+        title: `✏️ تحديد على الصورة — ${file.name}`,
+        wide: true,
+        body: `
+          <div class="btn-row no-print" style="margin-bottom:.6rem">
+            <button type="button" class="btn sm an-tool" data-tool="arrow">➤ سهم</button>
+            <button type="button" class="btn sm secondary an-tool" data-tool="ellipse">◯ دائرة</button>
+            <button type="button" class="btn sm secondary an-tool" data-tool="rect">▭ مستطيل</button>
+            <button type="button" class="btn sm secondary an-tool" data-tool="free">〰 خط حر</button>
+            <span style="width:12px"></span>
+            <button type="button" class="btn sm an-color" data-color="#e11d1d" style="background:#e11d1d">أحمر</button>
+            <button type="button" class="btn sm secondary an-color" data-color="#f5b400" style="color:#f5b400">أصفر</button>
+            <span style="flex:1"></span>
+            <button type="button" class="btn sm secondary" id="an-undo">↩ تراجع</button>
+            <button type="button" class="btn sm secondary" id="an-clear">🗑 مسح الكل</button>
+          </div>
+          <div style="overflow:auto;max-height:60vh;text-align:center;background:var(--surface-2);border-radius:8px">
+            <canvas id="an-canvas" width="${W}" height="${H}"
+              style="max-width:100%;height:auto;touch-action:none;cursor:crosshair;display:inline-block"></canvas>
+          </div>`,
+        footer: `<button class="btn" id="an-save">حفظ الصورة المعلَّمة</button>
+                 <button class="btn secondary" id="an-skip">تخطي — الأصلية دون تعديل</button>`,
+        onClose: () => resolve(file),
+      });
+
+      const canvas = m.el.querySelector('#an-canvas');
+      const ctx = canvas.getContext('2d');
+      const shapes = [];
+      let tool = 'arrow', color = '#e11d1d', current = null;
+      const LW = Math.max(4, Math.round(W / 220));
+
+      function drawShape(s) {
+        ctx.strokeStyle = s.color; ctx.lineWidth = LW; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        ctx.beginPath();
+        if (s.tool === 'free') {
+          s.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+        } else if (s.tool === 'rect') {
+          ctx.rect(Math.min(s.x0, s.x1), Math.min(s.y0, s.y1), Math.abs(s.x1 - s.x0), Math.abs(s.y1 - s.y0));
+        } else if (s.tool === 'ellipse') {
+          ctx.ellipse((s.x0 + s.x1) / 2, (s.y0 + s.y1) / 2, Math.abs(s.x1 - s.x0) / 2 || 1, Math.abs(s.y1 - s.y0) / 2 || 1, 0, 0, Math.PI * 2);
+        } else { // سهم
+          ctx.moveTo(s.x0, s.y0); ctx.lineTo(s.x1, s.y1);
+          const ang = Math.atan2(s.y1 - s.y0, s.x1 - s.x0), hl = LW * 3.2;
+          ctx.moveTo(s.x1, s.y1);
+          ctx.lineTo(s.x1 - hl * Math.cos(ang - 0.45), s.y1 - hl * Math.sin(ang - 0.45));
+          ctx.moveTo(s.x1, s.y1);
+          ctx.lineTo(s.x1 - hl * Math.cos(ang + 0.45), s.y1 - hl * Math.sin(ang + 0.45));
+        }
+        ctx.stroke();
+      }
+      function redraw() {
+        ctx.drawImage(bmp, 0, 0, W, H);
+        shapes.forEach(drawShape);
+        if (current) drawShape(current);
+      }
+      redraw();
+
+      function pos(e) {
+        const r = canvas.getBoundingClientRect();
+        return { x: (e.clientX - r.left) * (W / r.width), y: (e.clientY - r.top) * (H / r.height) };
+      }
+      canvas.addEventListener('pointerdown', e => {
+        e.preventDefault();
+        canvas.setPointerCapture(e.pointerId);
+        const p = pos(e);
+        current = tool === 'free'
+          ? { tool, color, points: [p] }
+          : { tool, color, x0: p.x, y0: p.y, x1: p.x, y1: p.y };
+      });
+      canvas.addEventListener('pointermove', e => {
+        if (!current) return;
+        const p = pos(e);
+        if (tool === 'free') current.points.push(p);
+        else { current.x1 = p.x; current.y1 = p.y; }
+        redraw();
+      });
+      canvas.addEventListener('pointerup', () => {
+        if (current) { shapes.push(current); current = null; redraw(); }
+      });
+
+      m.el.querySelectorAll('.an-tool').forEach(b => b.onclick = () => {
+        tool = b.dataset.tool;
+        m.el.querySelectorAll('.an-tool').forEach(x => x.classList.toggle('secondary', x !== b));
+      });
+      m.el.querySelectorAll('.an-color').forEach(b => b.onclick = () => {
+        color = b.dataset.color;
+        m.el.querySelectorAll('.an-color').forEach(x => x.classList.toggle('secondary', x !== b));
+      });
+      m.el.querySelector('#an-undo').onclick = () => { shapes.pop(); redraw(); };
+      m.el.querySelector('#an-clear').onclick = () => { shapes.length = 0; redraw(); };
+      m.el.querySelector('#an-skip').onclick = () => { resolve(file); m.close(); };
+      m.el.querySelector('#an-save').onclick = () => {
+        canvas.toBlob(blob => {
+          const out = blob
+            ? new File([blob], file.name.replace(/\.\w+$/, '') + '-معلمة.jpg', { type: 'image/jpeg' })
+            : file;
+          resolve(out); m.close();
+        }, 'image/jpeg', 0.88);
+      };
+    });
+  }
+
+  // تمرير مجموعة ملفات على المحرر (الصور فقط، والبقية تمر كما هي)
+  async function annotateImages(files) {
+    const out = [];
+    for (const f of files) {
+      out.push(f.type.startsWith('image/') && f.type !== 'image/gif' ? await annotateImage(f) : f);
+    }
+    return out;
+  }
+
   // رفع مرفقات كيان
   async function uploadAttachments(entityType, entityId, files, kind = 'photo') {
     const fd = new FormData();
@@ -291,6 +411,7 @@
         <div class="btn-row" style="margin-top:.5rem;align-items:center">
           <button class="btn sm" type="submit">＋ إضافة إجراء متخذ</button>
           <label class="btn secondary sm">📎 مرفقات<input type="file" name="files" accept="image/*,video/*,.pdf" capture="environment" multiple hidden></label>
+          <button type="button" class="btn secondary sm upd-annotate" hidden>✏️ تحديد</button>
           ${opts.showProgress ? `<label style="display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:var(--ink-2)">
             نسبة الإنجاز <input name="progress" type="number" min="0" max="100" placeholder="—" style="width:74px;padding:.3rem .5rem"> %</label>` : ''}
           <span class="upd-files-n" style="font-size:.74rem;color:var(--ink-3)"></span>
@@ -304,7 +425,14 @@
     form.querySelector('[name="files"]').addEventListener('change', e => {
       files = [...e.target.files];
       container.querySelector('.upd-files-n').textContent = files.length ? `${files.length} ملف` : '';
+      const anBtn = form.querySelector('.upd-annotate');
+      if (anBtn) anBtn.hidden = !files.some(f => f.type.startsWith('image/'));
     });
+    const anBtn = form.querySelector('.upd-annotate');
+    if (anBtn) anBtn.onclick = async () => {
+      files = await annotateImages(files);
+      container.querySelector('.upd-files-n').textContent = `${files.length} ملف (بعد التحديد)`;
+    };
     form.addEventListener('submit', async e => {
       e.preventDefault();
       const body = form.body.value.trim();
@@ -345,5 +473,6 @@
     dataTable, bindRows, fld, select, optsFromDict, compressImage, uploadAttachments, attachmentGrid,
     getLocation, spinner, formData, SEV_CLASS, renderUpdates,
     customStatuses, invalidateCustomStatuses, tagBadge, tagSelect, fmtHijri, dualDate,
+    annotateImage, annotateImages,
   };
 })();

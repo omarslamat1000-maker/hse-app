@@ -37,6 +37,7 @@ window.Pages = window.Pages || {};
           </div>
           <div class="btn-row" style="margin-top:.6rem">
             <label class="btn secondary sm">📷 التقاط / إرفاق صور<input type="file" id="obs-files" accept="image/*,video/*,.pdf" capture="environment" multiple hidden></label>
+            <button type="button" class="btn secondary sm" id="obs-annotate" hidden>✏️ تحديد على الصور</button>
             <span id="obs-files-status" style="font-size:.76rem;color:var(--ink-3)"></span>
           </div>
         </div>
@@ -90,7 +91,12 @@ window.Pages = window.Pages || {};
     m.el.querySelector('#obs-files').addEventListener('change', e => {
       files = [...e.target.files];
       m.el.querySelector('#obs-files-status').textContent = files.length ? `${files.length} ملف جاهز للرفع` : '';
+      m.el.querySelector('#obs-annotate').hidden = !files.some(f => f.type.startsWith('image/'));
     });
+    m.el.querySelector('#obs-annotate').onclick = async () => {
+      files = await UI.annotateImages(files);
+      m.el.querySelector('#obs-files-status').textContent = `${files.length} ملف (بعد التحديد) جاهز للرفع`;
+    };
 
     return new Promise(resolve => {
       m.el.addEventListener('transitionend', () => {}, { once: true });
@@ -398,7 +404,8 @@ window.Pages = window.Pages || {};
     // رفع مرفقات
     el.querySelectorAll('.obs-up').forEach(inp => inp.addEventListener('change', async () => {
       if (!inp.files.length) return;
-      await UI.uploadAttachments('observation', id, inp.files, inp.dataset.kind);
+      const annotated = await UI.annotateImages([...inp.files]);
+      await UI.uploadAttachments('observation', id, annotated, inp.dataset.kind);
       toast('تم رفع المرفقات');
       App.refreshRoute();
     }));
