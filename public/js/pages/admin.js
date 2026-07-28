@@ -559,6 +559,59 @@ window.Pages = window.Pages || {};
     });
   }
 
+  // ===== الأرشيف والاسترجاع =====
+  async function renderArchive(el, { params }) {
+    const TABS = [
+      ['observations', 'الملاحظات'], ['incidents', 'الحوادث'], ['actions', 'الإجراءات'],
+      ['risks', 'المخاطر'], ['permits', 'التصاريح'], ['projects', 'المشاريع'],
+    ];
+    const entity = params.entity || 'observations';
+    const rows = await api('/api/archive?entity=' + entity);
+    const DETAIL_ROUTE = { observations: id => `#/observations/${id}`, incidents: id => `#/incidents/${id}`, projects: id => `#/projects/${id}` };
+    el.innerHTML = `
+      <div class="tabs">
+        ${TABS.map(([k, t]) => `<button class="${k === entity ? 'active' : ''}" data-tab="${k}">${t}</button>`).join('')}
+      </div>
+      <div class="filters">
+        <label class="fld" style="flex:1;min-width:220px"><span>بحث في الأرشيف</span>
+          <input id="arch-q" placeholder="المرجع أو الوصف…"></label>
+        <span style="font-size:.8rem;color:var(--ink-3)">${rows.length} سجل مؤرشف</span>
+      </div>
+      <div id="arch-table"></div>`;
+    el.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+      location.hash = '#/archive?entity=' + b.dataset.tab;
+    });
+    function draw(list) {
+      const tbl = el.querySelector('#arch-table');
+      tbl.innerHTML = UI.dataTable({
+        columns: [
+          { title: 'المرجع', key: 'label' },
+          ...(entity !== 'projects' ? [{ title: 'المشروع', key: 'project_name' }] : []),
+          { title: 'الوصف', render: r => esc(r.description || '').slice(0, 70) },
+          { title: 'آخر عملية', render: r => `${esc(r.last_by)}${r.last_at ? ' — ' + fmtDateTime(r.last_at) : ''}` },
+          { title: 'إجراءات', render: r => `
+            <button class="btn sm" data-restore="${r.id}">↩ استرجاع</button>
+            ${DETAIL_ROUTE[entity] ? `<a class="btn sm secondary" href="${DETAIL_ROUTE[entity](r.id)}">عرض</a>` : ''}` },
+        ],
+        rows: list,
+        empty: 'لا توجد سجلات مؤرشفة في هذا التبويب',
+      });
+      tbl.querySelectorAll('[data-restore]').forEach(b => b.onclick = async () => {
+        const r = list.find(x => x.id === Number(b.dataset.restore));
+        if (!await UI.confirmDialog(`استرجاع «${r.label}» إلى القوائم النشطة؟`)) return;
+        await api('/api/archive/restore', { method: 'POST', body: { entity, id: r.id } });
+        toast('تم الاسترجاع — عاد السجل للقوائم النشطة');
+        App.refreshRoute();
+      });
+    }
+    draw(rows);
+    el.querySelector('#arch-q').addEventListener('input', e => {
+      const q = e.target.value.trim();
+      draw(q ? rows.filter(r => (r.label + ' ' + (r.description || '') + ' ' + (r.project_name || '')).includes(q)) : rows);
+    });
+  }
+
+  window.Pages.archive = { title: 'الأرشيف والاسترجاع', render: renderArchive, roles: ['admin'] };
   window.Pages.users = { title: 'إدارة المستخدمين والراصدين', render: renderUsers, roles: ['admin'] };
   window.Pages.escalation = { title: 'التصعيد والمهل', render: renderEscalation, roles: ['admin'] };
   window.Pages.checklists = { title: 'نماذج وقوائم التفتيش', render: renderChecklists, roles: ['admin'] };

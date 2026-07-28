@@ -146,6 +146,7 @@
     { route: 'users', title: 'المستخدمون', icon: 'users', roles: ['admin'] },
     { route: 'checklists', title: 'نماذج التفتيش', icon: 'checklist', roles: ['admin'] },
     { route: 'escalation', title: 'التصعيد والمهل', icon: 'escal', roles: ['admin'] },
+    { route: 'archive', title: 'الأرشيف', icon: 'permits', roles: ['admin'] },
     { route: 'audit', title: 'سجل العمليات', icon: 'audit', roles: ['admin'] },
     { route: 'settings', title: 'الإعدادات', icon: 'settings', roles: ['admin'] },
   ];

@@ -454,6 +454,45 @@ router.get('/report-archive/:id', requirePerm('view_reports'), (req, res) => {
   res.json({ ...a, payload: JSON.parse(a.payload) });
 });
 
+// ===== الأرشيف والاسترجاع =====
+const ARCHIVE_ENTITIES = {
+  observations: { table: 'observations', label: 'ref', desc: 'description' },
+  incidents: { table: 'incidents', label: 'ref', desc: 'description' },
+  actions: { table: 'actions', label: 'ref', desc: 'description' },
+  risks: { table: 'risks', label: 'ref', desc: 'description' },
+  permits: { table: 'permits', label: 'ref', desc: 'description' },
+  projects: { table: 'projects', label: 'code', desc: 'name' },
+};
+
+router.get('/archive', requireAdmin, (req, res) => {
+  const def = ARCHIVE_ENTITIES[req.query.entity];
+  if (!def) return res.status(400).json({ error: 'كيان غير معروف' });
+  const hasProject = def.table !== 'projects';
+  const rows = all(
+    `SELECT t.id, t.${def.label} AS label, t.${def.desc} AS description
+       ${hasProject ? ', p.name AS project_name' : ''}
+     FROM ${def.table} t ${hasProject ? 'JOIN projects p ON p.id = t.project_id' : ''}
+     WHERE t.archived = 1 ORDER BY t.id DESC LIMIT 300`);
+  const entityType = def.table === 'projects' ? 'project'
+    : def.table.slice(0, -1); // observation/incident/action/risk/permit
+  for (const r of rows) {
+    const a = get(`SELECT username, created_at FROM audit_log
+      WHERE entity_type = ? AND entity_id = ? ORDER BY id DESC LIMIT 1`, entityType, r.id);
+    r.last_by = a?.username || '—';
+    r.last_at = a?.created_at || null;
+  }
+  res.json(rows);
+});
+
+router.post('/archive/restore', requireAdmin, (req, res) => {
+  const { entity, id } = req.body || {};
+  const def = ARCHIVE_ENTITIES[entity];
+  if (!def || !id) return res.status(400).json({ error: 'حدد الكيان والسجل' });
+  run(`UPDATE ${def.table} SET archived = 0 WHERE id = ?`, Number(id));
+  logAudit(req, 'restore', def.table === 'projects' ? 'project' : def.table.slice(0, -1), Number(id), 'استرجاع من الأرشيف');
+  res.json({ ok: true });
+});
+
 // فحص التصعيدات يدوياً
 router.post('/escalations/check', requireAdmin, (req, res) => {
   const result = checkEscalations();
