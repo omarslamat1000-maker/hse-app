@@ -335,6 +335,29 @@ CREATE TABLE IF NOT EXISTS progress_updates (
 );
 CREATE INDEX IF NOT EXISTS idx_updates_entity ON progress_updates(entity_type, entity_id);
 
+-- التقارير المجدولة وأرشيفها
+CREATE TABLE IF NOT EXISTS report_schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  report_type TEXT NOT NULL,
+  frequency TEXT NOT NULL CHECK (frequency IN ('weekly','monthly')),
+  project_id INTEGER REFERENCES projects(id),
+  active INTEGER NOT NULL DEFAULT 1,
+  last_run TEXT,
+  created_by INTEGER REFERENCES users(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS report_archive (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  schedule_id INTEGER REFERENCES report_schedules(id),
+  report_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  period_from TEXT, period_to TEXT,
+  project_id INTEGER,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_report_archive_created ON report_archive(created_at);
+
 -- سجل التدقيق
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

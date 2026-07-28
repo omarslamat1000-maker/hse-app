@@ -366,6 +366,21 @@ async function login(user, password) {
   r = await req('moqawil', 'POST', '/api/observations', { project_id: 1, category: 'ppe', description: 'محاولة تسجيل' });
   assert('منع المقاول من تسجيل الملاحظات', r.status === 403);
 
+  console.log('— التقارير المجدولة —');
+  r = await req('admin', 'POST', '/api/report-schedules', { report_type: 'executive', frequency: 'weekly' });
+  assert('إنشاء جدولة تقرير', r.status === 201);
+  r = await req('admin', 'POST', '/api/report-schedules/run', {});
+  assert('توليد التقارير المجدولة الآن', r.status === 200 && r.data.generated >= 1);
+  r = await req('admin', 'GET', '/api/report-archive');
+  assert('أرشيف التقارير يحتوي الصادر', r.status === 200 && r.data.length >= 1);
+  const archId = r.data[0].id;
+  r = await req('admin', 'GET', `/api/report-archive/${archId}`);
+  assert('حمولة التقرير المؤرشف كاملة', r.status === 200 && r.data.payload.title && Array.isArray(r.data.payload.sections));
+  r = await req('rased1', 'GET', '/api/report-archive');
+  assert('الأرشيف متاح لمن يملك صلاحية التقارير', r.status === 200);
+  r = await req('moqawil', 'GET', '/api/report-archive');
+  assert('منع المقاول من أرشيف التقارير', r.status === 403);
+
   console.log(`\nالنتيجة: ${passed} ناجح / ${failed} فاشل`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error('فشل تشغيل الاختبارات:', e.message); process.exit(1); });

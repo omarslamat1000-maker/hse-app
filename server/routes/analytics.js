@@ -401,6 +401,59 @@ router.post('/import/:entity', requireAdmin, (req, res) => {
   res.json({ imported, failed: errors.length });
 });
 
+// ===== التقارير المجدولة وأرشيفها =====
+const { runScheduledReports, REPORT_TITLES } = require('../reportgen');
+
+router.get('/report-schedules', requireAdmin, (req, res) => {
+  res.json(all(`SELECT s.*, p.name AS project_name FROM report_schedules s
+    LEFT JOIN projects p ON p.id = s.project_id ORDER BY s.id DESC`));
+});
+
+router.post('/report-schedules', requireAdmin, (req, res) => {
+  const { report_type, frequency, project_id = null } = req.body || {};
+  if (!REPORT_TITLES[report_type] || !['weekly', 'monthly'].includes(frequency))
+    return res.status(400).json({ error: 'اختر نوع التقرير والدورية' });
+  run(`INSERT INTO report_schedules (report_type, frequency, project_id, created_by) VALUES (?,?,?,?)`,
+    report_type, frequency, project_id ? Number(project_id) : null, req.user.id);
+  const id = get(`SELECT last_insert_rowid() AS id`).id;
+  logAudit(req, 'create', 'report_schedule', id, `${report_type} ${frequency}`);
+  res.status(201).json({ id });
+});
+
+router.put('/report-schedules/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const s = get(`SELECT * FROM report_schedules WHERE id = ?`, id);
+  if (!s) return res.status(404).json({ error: 'غير موجود' });
+  if (req.body?.active !== undefined)
+    run(`UPDATE report_schedules SET active = ? WHERE id = ?`, req.body.active ? 1 : 0, id);
+  res.json({ ok: true });
+});
+
+router.delete('/report-schedules/:id', requireAdmin, (req, res) => {
+  run(`DELETE FROM report_schedules WHERE id = ?`, Number(req.params.id));
+  logAudit(req, 'delete', 'report_schedule', Number(req.params.id));
+  res.json({ ok: true });
+});
+
+// تشغيل فوري (يولّد كل الجداول النشطة الآن)
+router.post('/report-schedules/run', requireAdmin, (req, res) => {
+  const r = runScheduledReports(true);
+  logAudit(req, 'run', 'report_schedule', null, `${r.generated} تقرير`);
+  res.json(r);
+});
+
+router.get('/report-archive', requirePerm('view_reports'), (req, res) => {
+  res.json(all(`SELECT a.id, a.report_type, a.title, a.period_from, a.period_to, a.created_at, p.name AS project_name
+    FROM report_archive a LEFT JOIN projects p ON p.id = a.project_id
+    ORDER BY a.id DESC LIMIT ?`, Number(req.query.limit) || 100));
+});
+
+router.get('/report-archive/:id', requirePerm('view_reports'), (req, res) => {
+  const a = get(`SELECT * FROM report_archive WHERE id = ?`, Number(req.params.id));
+  if (!a) return res.status(404).json({ error: 'التقرير غير موجود' });
+  res.json({ ...a, payload: JSON.parse(a.payload) });
+});
+
 // فحص التصعيدات يدوياً
 router.post('/escalations/check', requireAdmin, (req, res) => {
   const result = checkEscalations();

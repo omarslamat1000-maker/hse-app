@@ -20,7 +20,7 @@ function dateOnly(n) { const d = new Date(Date.now() - n * 864e5); return d.toIS
 db.exec('BEGIN');
 
 // تنظيف
-['audit_log','notifications','progress_updates','toolbox_talks','evaluations','permits','actions','incidents','risks',
+['audit_log','notifications','report_archive','report_schedules','progress_updates','toolbox_talks','evaluations','permits','actions','incidents','risks',
  'observation_history','observations','tour_results','tours','checklist_items','checklist_templates',
  'attachments','project_assignments','projects','sessions','users','parties','settings']
   .forEach(t => db.exec(`DELETE FROM ${t}`));
@@ -435,6 +435,10 @@ const notifSeed = [
 ];
 notifSeed.forEach(([uid, t, b, k, et]) => run(
   `INSERT INTO notifications (user_id, title, body, kind, entity_type, entity_id) VALUES (?,?,?,?,?,1)`, uid, t, b, k, et));
+
+// جدولتان افتراضيتان: تنفيذي أسبوعي + حوادث شهري
+run(`INSERT INTO report_schedules (report_type, frequency, project_id, created_by) VALUES ('executive','weekly',NULL,1)`);
+run(`INSERT INTO report_schedules (report_type, frequency, project_id, created_by) VALUES ('incidents','monthly',NULL,1)`);
 
 run(`INSERT INTO audit_log (user_id, username, action, entity_type, details) VALUES (1, 'admin', 'seed', 'system', 'تهيئة البيانات التجريبية')`);
 

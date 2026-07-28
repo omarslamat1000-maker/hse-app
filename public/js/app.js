@@ -186,6 +186,7 @@
     tour: id => `#/tours/${id}`,
     action: () => '#/actions',
     permit: () => '#/permits',
+    report: id => `#/reports?type=archive&id=${id}`,
   };
 
   function criticalBeep() {

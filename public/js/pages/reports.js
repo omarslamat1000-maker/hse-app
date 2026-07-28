@@ -14,9 +14,13 @@ window.Pages = window.Pages || {};
     { key: 'tour_detail', title: 'تقرير جولة تفصيلي', desc: 'تقرير جولة واحدة بالنتائج والملاحظات والإحداثيات' },
   ];
 
-  async function render(el, { params }) {
+  async function render(el, { params, user }) {
     const projects = (await api('/api/auth/me')).projects;
+    if (params.type === 'archive' && params.id) return renderArchived(el, params);
     if (params.type) return renderReport(el, params, projects);
+    const isAdmin = user.role === 'admin';
+    const archive = await api('/api/report-archive?limit=30').catch(() => []);
+    const schedules = isAdmin ? await api('/api/report-schedules').catch(() => []) : [];
     el.innerHTML = `
       <div class="grid cols-4">
         ${REPORTS.map(r => `
@@ -25,6 +29,29 @@ window.Pages = window.Pages || {};
           <div style="font-size:.76rem;color:var(--ink-2)">${esc(r.desc)}</div>
         </div>`).join('')}
       </div>
+
+      ${isAdmin ? `
+      <div class="card" style="margin-top:1rem">
+        <h3>⏰ التقارير المجدولة</h3>
+        <div class="sub">تصدر تلقائياً في موعدها وتُحفظ في الأرشيف مع إشعار فوري — الأسبوعي يغطي الأسبوع المنقضي والشهري الشهر المنقضي</div>
+        <form class="btn-row" id="sched-form" style="align-items:flex-end;margin-bottom:.8rem">
+          <label class="fld" style="min-width:180px;margin:0"><span>نوع التقرير</span>
+            <select name="report_type">${Object.entries({executive:'تنفيذي',observations:'الملاحظات',overdue:'المتأخرة',incidents:'الحوادث',actions:'الإجراءات',tours:'الجولات',risks:'المخاطر'}).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></label>
+          <label class="fld" style="min-width:130px;margin:0"><span>الدورية</span>
+            <select name="frequency"><option value="weekly">أسبوعي (كل أحد)</option><option value="monthly">شهري (أول الشهر)</option></select></label>
+          <label class="fld" style="min-width:180px;margin:0"><span>النطاق</span>
+            <select name="project_id"><option value="">جميع المشاريع</option>${projects.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
+          <button class="btn sm" type="submit">+ جدولة</button>
+          <button class="btn sm secondary" type="button" id="sched-run">▶ توليد الآن</button>
+        </form>
+        <div id="sched-list"></div>
+      </div>` : ''}
+
+      <div class="card" style="margin-top:1rem">
+        <h3>🗄 أرشيف التقارير الصادرة</h3>
+        <div id="archive-list"></div>
+      </div>
+
       <div class="card" style="margin-top:1rem">
         <h3>التصدير المباشر إلى Excel/CSV</h3>
         <div class="btn-row">
@@ -35,6 +62,92 @@ window.Pages = window.Pages || {};
     el.querySelectorAll('[data-r]').forEach(c => c.addEventListener('click', () => {
       location.hash = `#/reports?type=${c.dataset.r}`;
     }));
+
+    // الأرشيف
+    const archEl = el.querySelector('#archive-list');
+    archEl.innerHTML = UI.dataTable({
+      columns: [
+        { title: 'التقرير', key: 'title' },
+        { title: 'الفترة', render: r => `${fmtDate(r.period_from)} ← ${fmtDate(r.period_to)}` },
+        { title: 'تاريخ الصدور', render: r => `${fmtDate(r.created_at)}<br><small style="color:var(--ink-3)">${UI.fmtHijri(r.created_at)}</small>` },
+      ],
+      rows: archive,
+      empty: 'لم تصدر تقارير مجدولة بعد — أضف جدولة واضغط «توليد الآن»',
+    });
+    UI.bindRows(archEl, archive, r => { location.hash = `#/reports?type=archive&id=${r.id}`; });
+
+    // الجدولة (مدير النظام)
+    if (isAdmin) {
+      const listEl = el.querySelector('#sched-list');
+      const FREQ = { weekly: 'أسبوعي', monthly: 'شهري' };
+      listEl.innerHTML = UI.dataTable({
+        columns: [
+          { title: 'التقرير', render: r => ({executive:'تنفيذي',observations:'الملاحظات',overdue:'المتأخرة',incidents:'الحوادث',actions:'الإجراءات',tours:'الجولات',risks:'المخاطر'})[r.report_type] || r.report_type },
+          { title: 'الدورية', render: r => FREQ[r.frequency] },
+          { title: 'النطاق', render: r => esc(r.project_name || 'جميع المشاريع') },
+          { title: 'آخر إصدار', render: r => r.last_run ? fmtDate(r.last_run) : '—' },
+          { title: 'الحالة', render: r => r.active ? '<span class="badge b-good">نشطة</span>' : '<span class="badge b-neutral">موقوفة</span>' },
+          { title: 'إجراءات', render: r => `
+            <button class="btn sm secondary" data-toggle="${r.id}">${r.active ? 'إيقاف' : 'تفعيل'}</button>
+            <button class="btn sm danger" data-del="${r.id}">حذف</button>` },
+        ],
+        rows: schedules,
+        empty: 'لا توجد جدولات — أضف أول جدولة أعلاه',
+      });
+      listEl.querySelectorAll('[data-toggle]').forEach(b => b.onclick = async () => {
+        const s = schedules.find(x => x.id === Number(b.dataset.toggle));
+        await api(`/api/report-schedules/${s.id}`, { method: 'PUT', body: { active: s.active ? 0 : 1 } });
+        App.refreshRoute();
+      });
+      listEl.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+        if (!await UI.confirmDialog('حذف الجدولة؟ (الأرشيف الصادر يبقى)')) return;
+        await api(`/api/report-schedules/${b.dataset.del}`, { method: 'DELETE' });
+        App.refreshRoute();
+      });
+      el.querySelector('#sched-form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const d = UI.formData(e.target);
+        try {
+          await api('/api/report-schedules', { method: 'POST', body: { ...d, project_id: d.project_id || null } });
+          UI.toast('تمت الجدولة — سيصدر التقرير في موعده تلقائياً');
+          App.refreshRoute();
+        } catch (err) { UI.toast(err.message, 'error'); }
+      });
+      el.querySelector('#sched-run').onclick = async () => {
+        const r = await api('/api/report-schedules/run', { method: 'POST', body: {} });
+        UI.toast(`صدر ${r.generated} تقريراً وأُرشف`);
+        App.refreshRoute();
+      };
+    }
+  }
+
+  // عارض التقرير المؤرشف
+  async function renderArchived(el, params) {
+    const a = await api(`/api/report-archive/${params.id}`);
+    const p = a.payload;
+    el.innerHTML = `
+      <div class="btn-row no-print" style="margin-bottom:1rem">
+        <a class="btn secondary sm" href="#/reports">→ مركز التقارير</a>
+        <button class="btn sm" onclick="window.print()">🖨 طباعة / حفظ PDF</button>
+      </div>
+      <div class="card">
+        <div class="print-header" style="display:flex">
+          <svg width="40" height="40" viewBox="0 0 100 100"><path d="M50 5 L90 20 V48 C90 70 73 88 50 95 C27 88 10 70 10 48 V20 Z" fill="#0e7a43"/><path d="M32 50 L45 63 L70 36" stroke="white" stroke-width="9" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div><div class="o">${esc(a.title)}</div>
+            <div style="font-size:.74rem;color:var(--ink-2)">الفترة: ${fmtDate(a.period_from)} ← ${fmtDate(a.period_to)}</div></div>
+          <div class="m">صدر: ${fmtDate(a.created_at)}<br>${UI.fmtHijri(a.created_at)}</div>
+        </div>
+        ${p.stats?.length ? `<div class="grid cols-4" style="margin-bottom:1rem">
+          ${p.stats.map(s => `<div class="stat"><div class="accent"></div><div class="lbl">${esc(s.label)}</div><div class="val">${esc(String(s.value))}</div></div>`).join('')}
+        </div>` : ''}
+        ${(p.sections || []).map(sec => `
+          <h3 style="margin-top:1rem">${esc(sec.title)} (${sec.rows.length})</h3>
+          <div class="table-wrap"><table class="data">
+            <thead><tr>${sec.columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+            <tbody>${sec.rows.map(r => `<tr>${r.map(v => `<td>${esc(String(v ?? '—'))}</td>`).join('')}</tr>`).join('') ||
+              `<tr><td colspan="${sec.columns.length}" class="empty-state">لا توجد سجلات</td></tr>`}</tbody>
+          </table></div>`).join('')}
+      </div>`;
   }
 
   function reportShell(title, meta, filtersHtml, bodyHtml) {

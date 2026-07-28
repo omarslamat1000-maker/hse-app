@@ -49,6 +49,11 @@ app.use((err, req, res, next) => {
 checkEscalations();
 setInterval(checkEscalations, 15 * 60 * 1000);
 
+// التقارير المجدولة — فحص الاستحقاق كل 30 دقيقة وعند الإقلاع
+const { runScheduledReports } = require('./reportgen');
+setTimeout(() => { try { runScheduledReports(); } catch (e) { console.error(e); } }, 5000);
+setInterval(() => { try { runScheduledReports(); } catch (e) { console.error(e); } }, 30 * 60 * 1000);
+
 app.listen(PORT, () => {
   console.log(`منصة السلامة تعمل على http://localhost:${PORT}`);
 });
