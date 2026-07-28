@@ -224,6 +224,16 @@ router.put('/tours/:id', requirePerm('assign_tours'), (req, res) => {
   const fields = ['observer_id','template_id','site','planned_date','planned_period','notes','status'];
   const cols = fields.filter(f => b[f] !== undefined);
   if (cols.length) run(`UPDATE tours SET ${cols.map(f => `${f} = ?`).join(', ')} WHERE id = ?`, ...cols.map(f => b[f]), id);
+  // إشعار الراصد عند إعادة الجدولة أو تغيير التكليف
+  const newObserver = b.observer_id !== undefined ? Number(b.observer_id) : t.observer_id;
+  if (b.planned_date && b.planned_date !== t.planned_date) {
+    const pname = get(`SELECT name FROM projects WHERE id = ?`, t.project_id).name;
+    notifyUser(newObserver, 'إعادة جدولة جولة',
+      `أُعيدت جدولة الجولة ${t.ref} على «${pname}» إلى ${b.planned_date}.`, 'tour', 'tour', id);
+  } else if (b.observer_id !== undefined && Number(b.observer_id) !== t.observer_id) {
+    const pname = get(`SELECT name FROM projects WHERE id = ?`, t.project_id).name;
+    notifyUser(newObserver, 'تكليف بجولة', `تم تكليفك بالجولة ${t.ref} على «${pname}» بتاريخ ${b.planned_date || t.planned_date}.`, 'tour', 'tour', id);
+  }
   logAudit(req, 'update', 'tour', id, t.ref);
   res.json({ ok: true });
 });

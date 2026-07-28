@@ -4,7 +4,7 @@ window.Pages = window.Pages || {};
   const { esc, label, badge, fld, select, optsFromDict, fmtDate, fmtDateTime, fmtNum, toast } = UI;
 
   // ===== تخطيط جولة (مدير النظام) =====
-  async function tourForm() {
+  async function tourForm(presetDate) {
     const [users, projects, checklists] = await Promise.all([
       api('/api/users'), api('/api/projects'), api('/api/checklists'),
     ]);
@@ -16,7 +16,7 @@ window.Pages = window.Pages || {};
         ${fld('الراصد', `<select name="observer_id"></select>`, { required: true })}
         ${fld('نموذج التفتيش', select('template_id', checklists.filter(c => c.active).map(c => ({ value: c.id, label: c.name })), '', { emptyLabel: 'بدون نموذج' }))}
         ${fld('الموقع داخل المشروع', '<input name="site" placeholder="مثال: المنطقة الشمالية">')}
-        ${fld('تاريخ الجولة', `<input name="planned_date" type="date" value="${new Date().toISOString().slice(0, 10)}" required>`, { required: true })}
+        ${fld('تاريخ الجولة', `<input name="planned_date" type="date" value="${presetDate || new Date().toISOString().slice(0, 10)}" required>`, { required: true })}
         ${fld('الفترة', select('planned_period', optsFromDict('period'), 'morning', { allowEmpty: false }))}
         ${fld('ملاحظات التكليف', '<textarea name="notes"></textarea>', { full: true })}
       </form>`,
@@ -120,12 +120,106 @@ window.Pages = window.Pages || {};
         ${fld('من', `<input type="date" name="from" value="${esc(params.from || '')}">`)}
         ${fld('إلى', `<input type="date" name="to" value="${esc(params.to || '')}">`)}
         <button class="btn sm" type="submit">تصفية</button>
+        <button class="btn sm secondary" type="button" id="tours-view-toggle"></button>
         ${isAdmin ? `<button class="btn" type="button" id="tour-add">+ تخطيط جولة</button>
         <a class="btn secondary sm" href="/api/export/tours" download>⬇ تصدير</a>` : ''}
       </form>
       <div id="tours-table"></div>`;
 
     const tbl = el.querySelector('#tours-table');
+
+    // ===== عرض التقويم الشهري =====
+    let calMonth = sessionStorage.getItem('hse_cal_month') || new Date().toISOString().slice(0, 7);
+    async function renderCalendar() {
+      const [y, mo] = calMonth.split('-').map(Number);
+      const first = new Date(y, mo - 1, 1);
+      const last = new Date(y, mo, 0);
+      const fq = new URLSearchParams(Object.entries(params).filter(([k, v]) => v && ['project_id', 'status'].includes(k)));
+      fq.set('from', `${calMonth}-01`);
+      fq.set('to', `${calMonth}-${String(last.getDate()).padStart(2, '0')}`);
+      const monthTours = await api('/api/tours?' + fq.toString());
+      const byDay = {};
+      for (const t of monthTours) (byDay[t.planned_date] = byDay[t.planned_date] || []).push(t);
+
+      const WD = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const startPad = first.getDay(); // الأحد = 0
+      const cells = [];
+      for (let i = 0; i < startPad; i++) cells.push(null);
+      for (let d = 1; d <= last.getDate(); d++) cells.push(`${calMonth}-${String(d).padStart(2, '0')}`);
+      while (cells.length % 7) cells.push(null);
+
+      const monthTitle = first.toLocaleDateString('ar-SA-u-ca-gregory-nu-latn', { year: 'numeric', month: 'long' });
+      tbl.innerHTML = `
+        <div class="btn-row" style="justify-content:center;margin-bottom:.7rem;align-items:center">
+          <button class="btn sm secondary" id="cal-prev">‹ السابق</button>
+          <b style="min-width:140px;text-align:center">${monthTitle}</b>
+          <button class="btn sm secondary" id="cal-next">التالي ›</button>
+          <button class="btn sm ghost" id="cal-today">اليوم</button>
+        </div>
+        <div class="cal">${WD.map(w => `<div class="cal-wd">${w}</div>`).join('')}
+          ${cells.map(dateStr => {
+            if (!dateStr) return '<div class="cal-day other"></div>';
+            const list = byDay[dateStr] || [];
+            return `<div class="cal-day ${dateStr === todayStr ? 'today' : ''}" data-date="${dateStr}">
+              <div class="dn"><span>${Number(dateStr.slice(8))}</span>${list.length ? `<span style="color:var(--ink-3)">${list.length}</span>` : ''}</div>
+              ${list.map(t => `<span class="cal-tour st-${t.status}" data-tour="${t.id}"
+                ${isAdmin && t.status === 'planned' ? 'draggable="true"' : ''}
+                title="${esc(t.ref)} — ${esc(t.project_name)} — ${esc(t.observer_name)} (${label('tour_status', t.status)})">
+                ${esc(t.project_name).slice(0, 16)} · ${esc(t.observer_name.split(' ')[0])}</span>`).join('')}
+              ${isAdmin ? `<div class="add-hint" data-add="${dateStr}">+ جولة</div>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="legend-row" style="margin-top:.6rem">
+          <span class="li"><span class="sw" style="background:var(--info)"></span> مخططة</span>
+          <span class="li"><span class="sw" style="background:var(--brand)"></span> قيد التنفيذ</span>
+          <span class="li"><span class="sw" style="background:var(--good)"></span> منفذة</span>
+          <span class="li"><span class="sw" style="background:var(--critical)"></span> فائتة</span>
+          ${isAdmin ? '<span class="li" style="color:var(--ink-3)">اسحب جولة مخططة ليوم آخر لإعادة جدولتها — وانقر يوماً فارغاً للتخطيط</span>' : ''}
+        </div>`;
+
+      tbl.querySelector('#cal-prev').onclick = () => { calMonth = shiftMonth(calMonth, -1); sessionStorage.setItem('hse_cal_month', calMonth); renderCalendar(); };
+      tbl.querySelector('#cal-next').onclick = () => { calMonth = shiftMonth(calMonth, 1); sessionStorage.setItem('hse_cal_month', calMonth); renderCalendar(); };
+      tbl.querySelector('#cal-today').onclick = () => { calMonth = new Date().toISOString().slice(0, 7); sessionStorage.setItem('hse_cal_month', calMonth); renderCalendar(); };
+
+      tbl.querySelectorAll('.cal-tour').forEach(chip => {
+        chip.addEventListener('click', () => { location.hash = `#/tours/${chip.dataset.tour}`; });
+        chip.addEventListener('dragstart', e => {
+          e.dataTransfer.setData('text/plain', chip.dataset.tour);
+          e.dataTransfer.effectAllowed = 'move';
+        });
+      });
+      if (isAdmin) {
+        tbl.querySelectorAll('[data-add]').forEach(h => h.addEventListener('click', async () => {
+          if (await tourForm(h.dataset.add)) renderCalendar();
+        }));
+        tbl.querySelectorAll('.cal-day[data-date]').forEach(day => {
+          day.addEventListener('dragover', e => { e.preventDefault(); day.classList.add('dragover'); });
+          day.addEventListener('dragleave', () => day.classList.remove('dragover'));
+          day.addEventListener('drop', async e => {
+            e.preventDefault();
+            day.classList.remove('dragover');
+            const tourId = e.dataTransfer.getData('text/plain');
+            if (!tourId) return;
+            const t = monthTours.find(x => x.id === Number(tourId));
+            if (!t || t.planned_date === day.dataset.date) return;
+            try {
+              await api(`/api/tours/${tourId}`, { method: 'PUT', body: { planned_date: day.dataset.date } });
+              toast(`أُعيدت جدولة ${t.ref} إلى ${fmtDate(day.dataset.date)} وأُشعر الراصد`);
+              renderCalendar();
+            } catch (err) { toast(err.message, 'error'); }
+          });
+        });
+      }
+    }
+    function shiftMonth(ym, delta) {
+      const [y, m] = ym.split('-').map(Number);
+      const d = new Date(y, m - 1 + delta, 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    function renderToursTable() {
     tbl.innerHTML = UI.dataTable({
       columns: [
         { title: 'المرجع', key: 'ref' },
@@ -145,6 +239,19 @@ window.Pages = window.Pages || {};
       e.stopPropagation();
       tourEditModal(tours.find(x => x.id === Number(b.dataset.edit)));
     }));
+    }
+
+    function applyToursView() {
+      const view = localStorage.getItem('hse_tours_view') || 'table';
+      el.querySelector('#tours-view-toggle').textContent = view === 'table' ? '📅 عرض تقويم' : '📋 عرض جدول';
+      view === 'calendar' ? renderCalendar() : renderToursTable();
+    }
+    el.querySelector('#tours-view-toggle').onclick = () => {
+      const cur = localStorage.getItem('hse_tours_view') || 'table';
+      localStorage.setItem('hse_tours_view', cur === 'table' ? 'calendar' : 'table');
+      applyToursView();
+    };
+    applyToursView();
 
     el.querySelector('#tour-filters').addEventListener('submit', e => {
       e.preventDefault();
