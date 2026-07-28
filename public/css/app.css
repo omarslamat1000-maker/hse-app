@@ -338,6 +338,29 @@ textarea { resize: vertical; min-height: 84px; }
 .legend-row .sw { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
 .pagination { display: flex; gap: .4rem; justify-content: center; margin-top: 1rem; }
 
+/* المساعد الذكي «اسأل المنصة» */
+.ask-fab {
+  position: fixed; bottom: 1.2rem; inset-inline-end: 1.2rem; z-index: 90;
+  width: 54px; height: 54px; border-radius: 50%; border: none; cursor: pointer;
+  background: var(--brand); color: #fff; font-size: 1.5rem; box-shadow: 0 8px 26px rgba(0,0,0,.3);
+}
+.ask-fab:hover { background: var(--brand-hover); }
+.ask-panel {
+  position: fixed; bottom: 5.4rem; inset-inline-end: 1.2rem; z-index: 95;
+  width: min(370px, calc(100vw - 2rem)); height: min(480px, 70vh);
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.35); display: flex; flex-direction: column; overflow: hidden;
+}
+.ask-head { background: var(--brand); color: #fff; padding: .7rem 1rem; font-weight: 800; display: flex; justify-content: space-between; align-items: center; }
+.ask-head button { background: none; border: none; color: #fff; cursor: pointer; font-size: 1rem; }
+.ask-msgs { flex: 1; overflow-y: auto; padding: .8rem; display: flex; flex-direction: column; gap: .5rem; }
+.ask-msg { max-width: 88%; padding: .5rem .8rem; border-radius: 12px; font-size: .82rem; white-space: pre-line; }
+.ask-msg.me { align-self: flex-start; background: var(--brand-soft); color: var(--ink); border-end-start-radius: 3px; }
+.ask-msg.bot { align-self: flex-end; background: var(--surface-2); border: 1px solid var(--hairline); border-end-end-radius: 3px; }
+.ask-msg .btn { margin-top: .4rem; }
+.ask-input { display: flex; gap: .4rem; padding: .6rem; border-top: 1px solid var(--hairline); }
+.ask-input input { flex: 1; }
+
 /* ===== الطباعة ===== */
 @media print {
   .sidebar, .topbar, .filters, .btn, .no-print, #toasts, .offline-bar, .tabs { display: none !important; }

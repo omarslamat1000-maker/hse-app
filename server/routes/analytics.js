@@ -567,6 +567,112 @@ router.post('/ai/classify', (req, res) => {
   res.json({ category, severity, confidence: best[1] > 1 ? 'high' : best[1] === 1 ? 'medium' : 'low' });
 });
 
+// ===== المساعد الذكي: اسأل المنصة (محرك قواعد عربي داخلي) =====
+router.post('/ai/ask', (req, res) => {
+  const q = String(req.body?.question || '').trim();
+  if (!q) return res.status(400).json({ error: 'اكتب سؤالك' });
+  const ids = req.user.role === 'admin' ? null : allowedProjectIds(req.user);
+  const scope = col => ids ? (ids.length ? `AND ${col} IN (${ids.join(',')})` : 'AND 1=0') : '';
+
+  // استخراج المشروع من نص السؤال
+  const projs = all(`SELECT id, name, code FROM projects WHERE archived = 0 ${ids ? (ids.length ? `AND id IN (${ids.join(',')})` : 'AND 1=0') : ''}`);
+  const norm = s => s.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/\s+/g, ' ');
+  const nq = norm(q);
+  const proj = projs.find(p => {
+    const words = norm(p.name).split(' ').filter(w => w.length > 3 && !['مشروع', 'تطوير', 'طريق', 'الملك', 'الامير'].includes(w));
+    return nq.includes(norm(p.code).toLowerCase()) || words.some(w => nq.includes(w));
+  });
+  const pFilter = proj ? `AND project_id = ${proj.id}` : '';
+  const pLabel = proj ? ` في «${proj.name}»` : '';
+  const pQ = proj ? `&project_id=${proj.id}` : '';
+
+  // استخراج الفترة
+  let from = null, label = '';
+  const today = new Date().toISOString().slice(0, 10);
+  if (/اليوم/.test(q)) { from = today; label = ' اليوم'; }
+  else if (/الاسبوع|الأسبوع/.test(q)) { const d = new Date(); d.setDate(d.getDate() - d.getDay()); from = d.toISOString().slice(0, 10); label = ' هذا الأسبوع'; }
+  else if (/الشهر/.test(q)) { from = today.slice(0, 8) + '01'; label = ' هذا الشهر'; }
+  const dFilter = c => from ? `AND date(${c}) >= date('${from}')` : '';
+  const dQ = from ? `&from=${from}` : '';
+
+  const has = (...words) => words.some(w => nq.includes(norm(w)));
+  const reply = (answer, links = []) => res.json({ answer, links });
+
+  // أعلى مشروع
+  if (has('اي مشروع', 'أي مشروع', 'الاكثر', 'الأكثر', 'الاعلى', 'الأعلى', 'اسوأ', 'أسوأ')) {
+    const metric = has('حادث', 'اصاب') ? 'incidents' : 'observations';
+    const sevF = has('حرج') ? "AND severity = 'critical'" : '';
+    const rows = all(metric === 'incidents'
+      ? `SELECT p.name, COUNT(*) c FROM incidents i JOIN projects p ON p.id = i.project_id WHERE i.archived = 0 ${scope('i.project_id')} ${dFilter('i.occurred_at')} GROUP BY p.id ORDER BY c DESC LIMIT 3`
+      : `SELECT p.name, COUNT(*) c FROM observations o JOIN projects p ON p.id = o.project_id WHERE o.archived = 0 AND o.status NOT IN ('closed','rejected') ${sevF} ${scope('o.project_id')} ${dFilter('o.created_at')} GROUP BY p.id ORDER BY c DESC LIMIT 3`);
+    if (!rows.length) return reply('لا توجد بيانات مطابقة.');
+    return reply(
+      `الأعلى${label}:\n` + rows.map((r, i) => `${i + 1}. ${r.name} — ${r.c}`).join('\n'),
+      [{ label: 'فتح القائمة', hash: metric === 'incidents' ? '#/incidents' : `#/observations?open_only=1${has('حرج') ? '&severity=critical' : ''}` }]);
+  }
+  // نسبة الالتزام
+  if (has('التزام')) {
+    const r = get(`SELECT SUM(tr.result='pass') p, SUM(tr.result IN ('pass','fail')) t
+      FROM tour_results tr JOIN tours tt ON tt.id = tr.tour_id WHERE 1=1 ${proj ? `AND tt.project_id = ${proj.id}` : scope('tt.project_id')} ${dFilter('tt.planned_date')}`);
+    return reply(`نسبة الالتزام بقوائم التفتيش${pLabel}${label}: ${r.t ? Math.round(r.p / r.t * 100) : 0}% (من ${r.t || 0} بنداً مقيماً)`,
+      [{ label: 'مؤشرات الأداء', hash: '#/kpis' }]);
+  }
+  // نسبة تنفيذ الجولات / جولات
+  if (has('جول')) {
+    if (has('نسبه', 'نسبة', 'تنفيذ')) {
+      const r = get(`SELECT SUM(status='completed') c, SUM(status='missed') m FROM tours WHERE 1=1 ${pFilter} ${scope('project_id')} ${dFilter('planned_date')}`);
+      return reply(`نسبة تنفيذ الجولات${pLabel}${label}: ${(r.c + r.m) ? Math.round(r.c / (r.c + r.m) * 100) : 0}% (${r.c || 0} منفذة / ${r.m || 0} فائتة)`,
+        [{ label: 'الجولات', hash: `#/tours?${pQ}${dQ}` }]);
+    }
+    const c = get(`SELECT COUNT(*) c FROM tours WHERE 1=1 ${pFilter} ${scope('project_id')} ${from ? dFilter('planned_date') : `AND planned_date = '${today}'`}`).c;
+    return reply(`${c} جولة${pLabel}${label || ' اليوم'}`, [{ label: 'الجولات', hash: `#/tours?${pQ}` }]);
+  }
+  // الحوادث والإصابات
+  if (has('حادث', 'حوادث', 'اصاب', 'إصاب')) {
+    const injOnly = has('اصاب', 'إصاب');
+    const c = get(`SELECT COUNT(*) c FROM incidents WHERE archived = 0 ${injOnly ? "AND itype IN ('injury','fatality')" : ''} ${pFilter} ${scope('project_id')} ${dFilter('occurred_at')}`).c;
+    return reply(`${c} ${injOnly ? 'إصابة' : 'حادثاً'}${pLabel}${label}`, [{ label: 'الحوادث', hash: `#/incidents?${pQ}${dQ}` }]);
+  }
+  // الإجراءات التصحيحية
+  if (has('اجراء', 'إجراء')) {
+    const overdue = has('متاخر', 'متأخر');
+    const c = get(`SELECT COUNT(*) c FROM actions WHERE archived = 0 AND status NOT IN ('closed','rejected')
+      ${overdue ? "AND due_date IS NOT NULL AND date(due_date) < date('now')" : ''} ${pFilter} ${scope('project_id')}`).c;
+    return reply(`${c} إجراء تصحيحي ${overdue ? 'متأخر' : 'مفتوح'}${pLabel}`,
+      [{ label: 'الإجراءات', hash: `#/actions?${overdue ? 'overdue=1' : ''}${pQ}` }]);
+  }
+  // التصاريح
+  if (has('تصريح', 'تصاريح')) {
+    const c = get(`SELECT COUNT(*) c FROM permits WHERE archived = 0 AND status = 'active' ${pFilter} ${scope('project_id')}`).c;
+    return reply(`${c} تصريح عمل ساري${pLabel}`, [{ label: 'التصاريح', hash: `#/permits?status=active${pQ}` }]);
+  }
+  // المخاطر
+  if (has('مخاطر', 'خطر')) {
+    const c = get(`SELECT COUNT(*) c FROM risks WHERE archived = 0 AND status != 'closed' AND score >= 10 ${pFilter} ${scope('project_id')}`).c;
+    return reply(`${c} خطراً مرتفعاً/حرجاً نشطاً${pLabel}`, [{ label: 'سجل المخاطر', hash: `#/risks?${pQ}` }]);
+  }
+  // الملاحظات (الافتراضي الأوسع)
+  if (has('ملاحظ', 'مخالف', 'كم')) {
+    const crit = has('حرج');
+    const overdue = has('متاخر', 'متأخر');
+    const violations = has('مخالف');
+    const closed = has('مغلق');
+    const open = has('مفتوح') || (!closed && !overdue);
+    let where = 'archived = 0', qs = [];
+    if (crit) { where += " AND severity = 'critical'"; qs.push('severity=critical'); }
+    if (violations) { where += " AND otype = 'violation'"; qs.push('otype=violation'); }
+    if (closed) { where += " AND status = 'closed'"; qs.push('status=closed'); }
+    else if (overdue) { where += " AND status NOT IN ('closed','rejected') AND due_date IS NOT NULL AND date(due_date) < date('now')"; qs.push('escalated=1'); }
+    else if (open && has('مفتوح')) { where += " AND status NOT IN ('closed','rejected')"; qs.push('open_only=1'); }
+    const c = get(`SELECT COUNT(*) c FROM observations WHERE ${where} ${pFilter} ${scope('project_id')} ${dFilter('created_at')}`).c;
+    const desc = [crit && 'حرجة', violations && 'مخالفة', overdue && 'متأخرة', closed && 'مغلقة', (open && has('مفتوح')) && 'مفتوحة'].filter(Boolean).join(' ');
+    return reply(`${c} ملاحظة ${desc}${pLabel}${label}`,
+      [{ label: 'فتح القائمة المفلترة', hash: `#/observations?${qs.join('&')}${pQ}${dQ}` }]);
+  }
+  // إرشاد
+  reply('لم أفهم السؤال تماماً. جرب مثلاً:\n• كم ملاحظة حرجة مفتوحة في مشروع النسيم؟\n• كم حادثاً هذا الشهر؟\n• أي مشروع الأكثر ملاحظات؟\n• ما نسبة الالتزام؟\n• كم إجراءً متأخراً؟');
+});
+
 router.get('/ai/insights', (req, res) => {
   const ids = req.user.role === 'admin' ? null : allowedProjectIds(req.user);
   const w = ids ? (ids.length ? `o.project_id IN (${ids.join(',')})` : '1=0') : '1=1';

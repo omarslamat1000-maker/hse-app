@@ -321,6 +321,54 @@
     };
   }
 
+  // ===== المساعد الذكي «اسأل المنصة» =====
+  function mountAskAssistant() {
+    if (document.getElementById('ask-fab')) return;
+    const fab = document.createElement('button');
+    fab.id = 'ask-fab'; fab.className = 'ask-fab no-print'; fab.title = 'اسأل المنصة';
+    fab.textContent = '💬';
+    document.body.appendChild(fab);
+    let panel = null;
+    fab.onclick = () => {
+      if (panel) { panel.remove(); panel = null; return; }
+      panel = document.createElement('div');
+      panel.className = 'ask-panel no-print';
+      panel.innerHTML = `
+        <div class="ask-head"><span>💬 اسأل المنصة</span><button title="إغلاق">✕</button></div>
+        <div class="ask-msgs" id="ask-msgs">
+          <div class="ask-msg bot">أهلاً! اسألني عن بياناتك بالعربية، مثلاً:\n• كم ملاحظة حرجة مفتوحة؟\n• كم حادثاً هذا الشهر؟\n• أي مشروع الأكثر ملاحظات؟\n• ما نسبة الالتزام في مشروع النسيم؟</div>
+        </div>
+        <form class="ask-input"><input placeholder="اكتب سؤالك…" autocomplete="off"><button class="btn sm" type="submit">إرسال</button></form>`;
+      document.body.appendChild(panel);
+      panel.querySelector('.ask-head button').onclick = () => { panel.remove(); panel = null; };
+      const msgs = panel.querySelector('#ask-msgs');
+      const form = panel.querySelector('form');
+      const input = form.querySelector('input');
+      input.focus();
+      form.addEventListener('submit', async e => {
+        e.preventDefault();
+        const question = input.value.trim();
+        if (!question) return;
+        input.value = '';
+        msgs.insertAdjacentHTML('beforeend', `<div class="ask-msg me">${esc(question)}</div>`);
+        msgs.scrollTop = msgs.scrollHeight;
+        try {
+          const r = await api('/api/ai/ask', { method: 'POST', body: { question } });
+          const links = (r.links || []).map(l =>
+            `<div><button class="btn sm secondary" data-hash="${esc(l.hash)}">↗ ${esc(l.label)}</button></div>`).join('');
+          msgs.insertAdjacentHTML('beforeend', `<div class="ask-msg bot">${esc(r.answer)}${links}</div>`);
+          msgs.querySelectorAll('[data-hash]').forEach(b => b.onclick = () => {
+            location.hash = b.dataset.hash;
+            panel.remove(); panel = null;
+          });
+        } catch (err) {
+          msgs.insertAdjacentHTML('beforeend', `<div class="ask-msg bot">تعذر: ${esc(err.message)}</div>`);
+        }
+        msgs.scrollTop = msgs.scrollHeight;
+      });
+    };
+  }
+
   // ===== التوجيه =====
   function parseHash() {
     const h = location.hash.replace(/^#\/?/, '') || 'dashboard';
@@ -384,6 +432,7 @@
     pollNotifications();
     setInterval(pollNotifications, 120000); // احتياط — البث الفوري هو القناة الأساسية
     connectStream();
+    mountAskAssistant();
     if (navigator.onLine) OfflineSync.syncQueue();
   }
 
