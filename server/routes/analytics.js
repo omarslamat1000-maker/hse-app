@@ -1,7 +1,7 @@
 // لوحة المعلومات، المؤشرات، الخريطة، التقارير، التصدير والاستيراد، التحليل الذكي
 const express = require('express');
 const { all, get, run, riskLevel } = require('../db');
-const { requireAuth, requireAdmin, allowedProjectIds } = require('../auth');
+const { requireAuth, requireAdmin, requirePerm, allowedProjectIds } = require('../auth');
 const { checkEscalations, escalationRules } = require('../escalation');
 const { logAudit } = require('./core');
 
@@ -171,7 +171,7 @@ router.get('/dashboard', (req, res) => {
 });
 
 // ===== بطاقات المؤشرات =====
-router.get('/kpis', (req, res) => {
+router.get('/kpis', requirePerm('view_reports'), (req, res) => {
   const obs = buildFilters(req, 'o', 'created_at');
   const tours = buildFilters(req, 't', 'planned_date');
   const inc = buildFilters(req, 'i', 'occurred_at');
@@ -261,7 +261,7 @@ router.get('/map', (req, res) => {
 });
 
 // ===== التقارير =====
-router.get('/reports/:type', (req, res) => {
+router.get('/reports/:type', requirePerm('view_reports'), (req, res) => {
   const type = req.params.type;
   const obs = buildFilters(req, 'o', 'created_at');
   const tours = buildFilters(req, 't', 'planned_date');
@@ -357,7 +357,7 @@ function toCsv(rows) {
   return '﻿' + cols.join(',') + '\n' + rows.map(r => cols.map(c => esc(r[c])).join(',')).join('\n');
 }
 
-router.get('/export/:entity', (req, res) => {
+router.get('/export/:entity', requirePerm('view_reports'), (req, res) => {
   const q = EXPORT_QUERIES[req.params.entity];
   if (!q) return res.status(404).json({ error: 'كيان غير معروف' });
   if (req.params.entity === 'audit' && req.user.role !== 'admin') return res.status(403).json({ error: 'صلاحية غير كافية' });

@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const { all, get, run, DB_PATH } = require('../db');
 const {
   hashPassword, verifyPassword, createSession, destroySession,
-  requireAuth, requireAdmin,
+  requireAuth, requireAdmin, requirePerm, userPerms, ROLES,
 } = require('../auth');
 
 const authRouter = express.Router();
@@ -48,7 +48,7 @@ authRouter.get('/me', requireAuth, (req, res) => {
     ? all(`SELECT id, name FROM projects WHERE archived = 0`)
     : all(`SELECT p.id, p.name FROM projects p JOIN project_assignments a ON a.project_id = p.id
            WHERE a.user_id = ? AND p.archived = 0`, req.user.id);
-  res.json({ ...u, projects });
+  res.json({ ...u, projects, perms: userPerms(req.user) });
 });
 
 authRouter.post('/change-password', requireAuth, (req, res) => {
@@ -76,7 +76,7 @@ coreRouter.get('/users', requireAdmin, (req, res) => {
 
 coreRouter.post('/users', requireAdmin, (req, res) => {
   const { username, password, full_name, role, phone = '', email = '', project_ids = [] } = req.body || {};
-  if (!username || !password || !full_name || !['admin', 'observer'].includes(role))
+  if (!username || !password || !full_name || !ROLES.includes(role))
     return res.status(400).json({ error: 'بيانات المستخدم غير مكتملة' });
   if (String(password).length < 8) return res.status(400).json({ error: 'كلمة المرور يجب ألا تقل عن 8 أحرف' });
   if (get(`SELECT id FROM users WHERE username = ?`, String(username).trim().toLowerCase()))
@@ -95,7 +95,7 @@ coreRouter.put('/users/:id', requireAdmin, (req, res) => {
   if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
   const { full_name, role, phone, email, active, password, project_ids } = req.body || {};
   run(`UPDATE users SET full_name = ?, role = ?, phone = ?, email = ?, active = ? WHERE id = ?`,
-    full_name ?? user.full_name, ['admin', 'observer'].includes(role) ? role : user.role,
+    full_name ?? user.full_name, ROLES.includes(role) ? role : user.role,
     phone ?? user.phone, email ?? user.email, active === undefined ? user.active : (active ? 1 : 0), id);
   if (password) {
     if (String(password).length < 8) return res.status(400).json({ error: 'كلمة المرور يجب ألا تقل عن 8 أحرف' });
@@ -114,7 +114,7 @@ coreRouter.get('/parties', (req, res) => {
   res.json(all(`SELECT * FROM parties ORDER BY kind, name`));
 });
 
-coreRouter.post('/parties', requireAdmin, (req, res) => {
+coreRouter.post('/parties', requirePerm('manage_projects'), (req, res) => {
   const { name, kind, contact_name = '', phone = '', email = '' } = req.body || {};
   if (!name || !['contractor', 'consultant'].includes(kind))
     return res.status(400).json({ error: 'بيانات غير مكتملة' });
@@ -124,7 +124,7 @@ coreRouter.post('/parties', requireAdmin, (req, res) => {
   res.status(201).json({ id });
 });
 
-coreRouter.put('/parties/:id', requireAdmin, (req, res) => {
+coreRouter.put('/parties/:id', requirePerm('manage_projects'), (req, res) => {
   const id = Number(req.params.id);
   const p = get(`SELECT * FROM parties WHERE id = ?`, id);
   if (!p) return res.status(404).json({ error: 'غير موجود' });
@@ -208,6 +208,12 @@ coreRouter.put('/settings', requireAdmin, (req, res) => {
   }
   logAudit(req, 'update', 'settings', null, JSON.stringify(req.body));
   res.json({ ok: true });
+});
+
+// ===== مصفوفة الصلاحيات (لشاشة الإعدادات) =====
+const { roleMatrix, PERMISSIONS: PERM_KEYS } = require('../auth');
+coreRouter.get('/permissions', requireAdmin, (req, res) => {
+  res.json({ roles: ROLES, permissions: PERM_KEYS, matrix: roleMatrix() });
 });
 
 // ===== سجل التدقيق =====

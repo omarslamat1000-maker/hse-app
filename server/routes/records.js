@@ -1,7 +1,7 @@
 // الملاحظات والمخالفات، المخاطر، الحوادث، الإجراءات التصحيحية، التصاريح، التقييمات
 const express = require('express');
 const { all, get, run, nextRef, riskLevel, slaDays } = require('../db');
-const { requireAuth, requireAdmin, allowedProjectIds, canAccessProject } = require('../auth');
+const { requireAuth, requireAdmin, requirePerm, can, allowedProjectIds, canAccessProject } = require('../auth');
 const { notifyAdmins, notifyUser } = require('../escalation');
 const { logAudit } = require('./core');
 
@@ -53,7 +53,7 @@ router.get('/updates', (req, res) => {
   res.json(rows);
 });
 
-router.post('/updates', (req, res) => {
+router.post('/updates', requirePerm('record_observations'), (req, res) => {
   const { entity_type, entity_id, body, progress } = req.body || {};
   if (!body || !String(body).trim()) return res.status(400).json({ error: 'أدخل وصف الإجراء المتخذ' });
   const ent = resolveEntity(entity_type, entity_id);
@@ -87,18 +87,23 @@ const OBS_TRANSITIONS = {
   reopened: ['assigned', 'in_progress'],
   closed: ['reopened'],
 };
-// من يستطيع تنفيذ كل انتقال
-const OBS_TRANSITION_ROLES = {
-  submitted: ['admin', 'observer'],
-  under_review: ['admin'],
-  approved: ['admin'],
-  rejected: ['admin'],
-  assigned: ['admin'],
-  in_progress: ['admin'],
-  pending_verification: ['admin'],
-  closed: ['admin'],
-  reopened: ['admin', 'observer'],
+// الصلاحية المطلوبة لكل انتقال (من مصفوفة الصلاحيات)
+const OBS_TRANSITION_PERM = {
+  submitted: 'record_observations',
+  under_review: 'approve_observations',
+  approved: 'approve_observations',
+  rejected: 'approve_observations',
+  assigned: 'approve_observations',
+  in_progress: 'approve_observations',
+  pending_verification: 'approve_observations',
+  closed: 'close_observations',
+  reopened: null, // إعادة الفتح: من يملك التسجيل أو الإغلاق
 };
+function canTransitionObs(user, to) {
+  const perm = OBS_TRANSITION_PERM[to];
+  if (perm === null) return can(user, 'record_observations') || can(user, 'close_observations');
+  return can(user, perm);
+}
 
 router.get('/observations', (req, res) => {
   const filters = ['o.archived = 0'];
@@ -141,7 +146,7 @@ router.get('/observations/:id', (req, res) => {
   res.json(o);
 });
 
-router.post('/observations', (req, res) => {
+router.post('/observations', requirePerm('record_observations'), (req, res) => {
   const b = req.body || {};
   const { project_id, category, description } = b;
   if (!project_id || !category || !description)
@@ -246,8 +251,7 @@ router.post('/observations/:id/transition', (req, res) => {
   const allowed = OBS_TRANSITIONS[o.status] || [];
   if (!allowed.includes(to))
     return res.status(400).json({ error: `لا يمكن الانتقال من «${o.status}» إلى «${to}»` });
-  const roles = OBS_TRANSITION_ROLES[to] || ['admin'];
-  if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'صلاحية غير كافية لهذا الانتقال' });
+  if (!canTransitionObs(req.user, to)) return res.status(403).json({ error: 'صلاحية غير كافية لهذا الانتقال' });
 
   if (to === 'rejected' && !note) return res.status(400).json({ error: 'سبب الرفض إلزامي' });
   if (to === 'reopened' && !note) return res.status(400).json({ error: 'سبب إعادة الفتح إلزامي' });
@@ -297,7 +301,7 @@ router.get('/risks', (req, res) => {
   res.json(level ? withLevel.filter(r => r.level === level) : withLevel);
 });
 
-router.post('/risks', (req, res) => {
+router.post('/risks', requirePerm('record_observations'), (req, res) => {
   const b = req.body || {};
   if (!b.project_id || !b.description || !b.likelihood || !b.impact)
     return res.status(400).json({ error: 'المشروع والوصف والاحتمالية والأثر حقول إلزامية' });
@@ -367,7 +371,7 @@ const INCIDENT_FIELDS = ['itype','occurred_at','location','lat','lng','people_af
   'injury_severity','lost_hours','immediate_action','investigation_team','rca_method','root_cause','direct_causes',
   'indirect_causes','lessons','status','status_tag','injured_id','injured_nationality','injured_occupation'];
 
-router.post('/incidents', (req, res) => {
+router.post('/incidents', requirePerm('record_observations'), (req, res) => {
   const b = req.body || {};
   if (!b.project_id || !b.itype || !b.occurred_at || !b.description)
     return res.status(400).json({ error: 'المشروع والنوع والتاريخ والوصف حقول إلزامية' });
@@ -394,7 +398,7 @@ router.put('/incidents/:id', (req, res) => {
   const b = req.body || {};
   // بوابة الإغلاق قبل أي تحديث للحالة
   if (b.status === 'closed') {
-    if (req.user.role !== 'admin') return res.status(403).json({ error: 'إغلاق الحادث من صلاحية مدير النظام' });
+    if (!can(req.user, 'close_observations')) return res.status(403).json({ error: 'إغلاق الحادث يتطلب صلاحية اعتماد الإغلاق' });
     if (!updatesCount('incident', id))
       return res.status(400).json({ error: 'وثّق إجراءً متخذاً واحداً على الأقل في سجل «الإجراءات المتخذة» قبل إغلاق الحادث' });
   }
@@ -429,7 +433,7 @@ router.get('/talks', (req, res) => {
      WHERE ${filters.join(' AND ')} ORDER BY t.talk_date DESC, t.id DESC LIMIT 500`, ...params));
 });
 
-router.post('/talks', (req, res) => {
+router.post('/talks', requirePerm('record_observations'), (req, res) => {
   const b = req.body || {};
   if (!b.project_id || !b.topic || !b.talk_date)
     return res.status(400).json({ error: 'المشروع والموضوع وتاريخ الاجتماع حقول إلزامية' });
@@ -480,7 +484,7 @@ router.get('/actions', (req, res) => {
      WHERE ${filters.join(' AND ')} ORDER BY a.id DESC LIMIT 500`, ...params));
 });
 
-router.post('/actions', (req, res) => {
+router.post('/actions', requirePerm('record_observations'), (req, res) => {
   const b = req.body || {};
   if (!b.project_id || !b.description) return res.status(400).json({ error: 'المشروع والوصف حقول إلزامية' });
   if (!canAccessProject(req.user, b.project_id)) return res.status(403).json({ error: 'لا تملك صلاحية' });
@@ -519,7 +523,7 @@ router.post('/actions/:id/transition', (req, res) => {
   const { to, note = '' } = req.body || {};
   const allowed = ACTION_TRANSITIONS[a.status] || [];
   if (!allowed.includes(to)) return res.status(400).json({ error: `لا يمكن الانتقال من «${a.status}» إلى «${to}»` });
-  if (['closed', 'rejected', 'reopened'].includes(to) && req.user.role !== 'admin')
+  if (['closed', 'rejected', 'reopened'].includes(to) && !can(req.user, 'close_observations'))
     return res.status(403).json({ error: 'اعتماد الإغلاق أو الرفض من صلاحية مدير النظام' });
   if (to === 'pending_verification' && !updatesCount('action', id))
     return res.status(400).json({ error: 'وثّق إجراءً متخذاً واحداً على الأقل في سجل «الإجراءات المتخذة» قبل طلب التحقق' });
@@ -558,7 +562,7 @@ router.get('/permits', (req, res) => {
      WHERE ${filters.join(' AND ')} ORDER BY pr.id DESC LIMIT 500`, ...params));
 });
 
-router.post('/permits', (req, res) => {
+router.post('/permits', requirePerm('record_observations'), (req, res) => {
   const b = req.body || {};
   if (!b.project_id || !b.ptype) return res.status(400).json({ error: 'المشروع ونوع التصريح إلزاميان' });
   if (!canAccessProject(req.user, b.project_id)) return res.status(403).json({ error: 'لا تملك صلاحية' });
@@ -595,7 +599,7 @@ router.post('/permits/:id/transition', (req, res) => {
   const { to } = req.body || {};
   const allowed = PERMIT_TRANSITIONS[p.status] || [];
   if (!allowed.includes(to)) return res.status(400).json({ error: `لا يمكن الانتقال من «${p.status}» إلى «${to}»` });
-  if (['under_review', 'approved', 'cancelled', 'suspended'].includes(to) && req.user.role !== 'admin')
+  if (['under_review', 'approved', 'cancelled', 'suspended'].includes(to) && !can(req.user, 'approve_permits'))
     return res.status(403).json({ error: 'مراجعة أو اعتماد أو تعليق التصريح من صلاحية مدير النظام' });
   if (to === 'closed' && !updatesCount('permit', id))
     return res.status(400).json({ error: 'وثّق إجراءً متخذاً واحداً على الأقل في سجل «الإجراءات المتخذة» قبل إغلاق التصريح' });
@@ -616,7 +620,7 @@ router.get('/evaluations', (req, res) => {
      WHERE ${filters.join(' AND ')} ORDER BY e.period DESC, e.total DESC LIMIT 500`, ...params));
 });
 
-router.post('/evaluations', requireAdmin, (req, res) => {
+router.post('/evaluations', requirePerm('manage_projects'), (req, res) => {
   const { party_id, project_id = null, period, scores = {}, notes = '' } = req.body || {};
   if (!party_id || !period) return res.status(400).json({ error: 'الطرف والفترة إلزاميان' });
   const vals = Object.values(scores).map(Number).filter(n => !isNaN(n));

@@ -95,7 +95,7 @@ window.Pages = window.Pages || {};
 
   // ===== قائمة الجولات =====
   async function render(el, { params, user }) {
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role === 'admin' || !!user.perms?.assign_tours;
     const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
     const [tours, projects] = await Promise.all([
       api('/api/tours' + (qs ? `?${qs}` : '')),

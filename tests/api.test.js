@@ -300,6 +300,39 @@ async function login(user, password) {
   r = await req('admin', 'GET', '/api/settings');
   assert('مكتبة المراجع النظامية السعودية', JSON.parse(r.data.reg_references || '[]').length >= 5);
 
+  console.log('— الأدوار ومصفوفة الصلاحيات —');
+  r = await login('mushrif', 'Mushrif@123');
+  assert('دخول مشرف السلامة', r.status === 200 && r.data.role === 'safety_supervisor');
+  await login('viewer', 'Viewer@123');
+  r = await req('mushrif', 'GET', '/api/auth/me');
+  assert('me يرجع صلاحيات الدور', r.data.perms && r.data.perms.approve_observations === true && r.data.perms.manage_projects === false);
+  // مشرف السلامة يعتمد ملاحظة ضمن نطاقه (مشاريع 1-4)
+  r = await req('rased1', 'POST', '/api/observations', {
+    project_id: 1, category: 'ppe', description: 'اختبار أدوار: عامل دون قفازات قرب مواد حادة ' + Date.now(),
+  });
+  const roleObsId = r.data.id;
+  r = await req('mushrif', 'POST', `/api/observations/${roleObsId}/transition`, { to: 'approved' });
+  assert('مشرف السلامة يعتمد الملاحظات', r.status === 200);
+  r = await req('mushrif', 'POST', '/api/projects', { code: 'X-' + Date.now(), name: 'تجربة', type: 'other' });
+  assert('منع المشرف من إنشاء المشاريع', r.status === 403);
+  // القراءة فقط: يشاهد ولا يسجل
+  r = await req('viewer', 'GET', '/api/dashboard');
+  assert('القراءة فقط يشاهد اللوحة', r.status === 200);
+  r = await req('viewer', 'POST', '/api/observations', { project_id: 1, category: 'ppe', description: 'محاولة تسجيل' });
+  assert('منع القراءة فقط من التسجيل', r.status === 403);
+  // تعديل المصفوفة يغير السلوك فوراً: سحب اعتماد الملاحظات من المشرف
+  r = await req('admin', 'GET', '/api/permissions');
+  assert('قراءة مصفوفة الصلاحيات', r.status === 200 && r.data.roles.length === 5 && r.data.permissions.length === 8);
+  const matrix = r.data.matrix;
+  matrix.safety_supervisor.approve_observations = false;
+  await req('admin', 'PUT', '/api/settings', { role_permissions: JSON.stringify(matrix) });
+  r = await req('mushrif', 'POST', `/api/observations/${roleObsId}/transition`, { to: 'assigned' });
+  assert('سحب الصلاحية من المصفوفة يمنع فوراً', r.status === 403);
+  matrix.safety_supervisor.approve_observations = true;
+  await req('admin', 'PUT', '/api/settings', { role_permissions: JSON.stringify(matrix) });
+  r = await req('mushrif', 'POST', `/api/observations/${roleObsId}/transition`, { to: 'assigned' });
+  assert('إعادة الصلاحية تعيد التمكين', r.status === 200);
+
   console.log(`\nالنتيجة: ${passed} ناجح / ${failed} فاشل`);
   process.exit(failed ? 1 : 0);
 })().catch(e => { console.error('فشل تشغيل الاختبارات:', e.message); process.exit(1); });

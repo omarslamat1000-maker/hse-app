@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   full_name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin','observer')),
+  role TEXT NOT NULL CHECK (role IN ('admin','safety_supervisor','project_manager','observer','viewer')),
   phone TEXT DEFAULT '',
   email TEXT DEFAULT '',
   active INTEGER NOT NULL DEFAULT 1,
@@ -368,6 +368,32 @@ db.exec(SCHEMA);
 for (const t of ['observations', 'actions', 'incidents', 'permits', 'risks']) {
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN status_tag TEXT NOT NULL DEFAULT ''`); } catch { /* موجود مسبقاً */ }
 }
+// ترحيل: توسيع أدوار المستخدمين (القيد القديم يسمح بدورين فقط) — إعادة بناء الجدول
+{
+  const ddl = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`).get();
+  if (ddl && !ddl.sql.includes('safety_supervisor')) {
+    db.exec(`PRAGMA foreign_keys = OFF`);
+    db.exec('BEGIN');
+    db.exec(`CREATE TABLE users_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT NOT NULL UNIQUE,
+      password_hash TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('admin','safety_supervisor','project_manager','observer','viewer')),
+      phone TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`);
+    db.exec(`INSERT INTO users_new (id, username, password_hash, full_name, role, phone, email, active, created_at)
+             SELECT id, username, password_hash, full_name, role, phone, email, active, created_at FROM users`);
+    db.exec(`DROP TABLE users`);
+    db.exec(`ALTER TABLE users_new RENAME TO users`);
+    db.exec('COMMIT');
+    db.exec(`PRAGMA foreign_keys = ON`);
+  }
+}
+
 // حقول الإبلاغ عن إصابات العمل للتأمينات الاجتماعية GOSI
 for (const col of [
   `injured_id TEXT NOT NULL DEFAULT ''`,          // رقم الهوية / الإقامة

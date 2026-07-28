@@ -1,7 +1,7 @@
 // المشاريع، الجولات الميدانية، قوائم التفتيش
 const express = require('express');
 const { all, get, run, nextRef, riskLevel, slaDays } = require('../db');
-const { requireAuth, requireAdmin, allowedProjectIds, canAccessProject } = require('../auth');
+const { requireAuth, requireAdmin, requirePerm, can, allowedProjectIds, canAccessProject } = require('../auth');
 const { notifyUser, notifyAdmins } = require('../escalation');
 
 const router = express.Router();
@@ -67,7 +67,7 @@ const PROJECT_FIELDS = ['code','name','description','type','location_text','lat'
   'contractor_id','consultant_id','project_manager','safety_officer','value','start_date','end_date',
   'progress_pct','workers_count','work_hours','status','risk_level','safety_plan_approved'];
 
-router.post('/projects', requireAdmin, (req, res) => {
+router.post('/projects', requirePerm('manage_projects'), (req, res) => {
   const b = req.body || {};
   if (!b.code || !b.name || !b.type) return res.status(400).json({ error: 'رمز المشروع واسمه ونوعه حقول إلزامية' });
   if (get(`SELECT id FROM projects WHERE code = ?`, b.code)) return res.status(409).json({ error: 'رمز المشروع مستخدم مسبقاً' });
@@ -79,7 +79,7 @@ router.post('/projects', requireAdmin, (req, res) => {
   res.status(201).json({ id });
 });
 
-router.put('/projects/:id', requireAdmin, (req, res) => {
+router.put('/projects/:id', requirePerm('manage_projects'), (req, res) => {
   const id = Number(req.params.id);
   const p = get(`SELECT * FROM projects WHERE id = ?`, id);
   if (!p) return res.status(404).json({ error: 'المشروع غير موجود' });
@@ -93,7 +93,7 @@ router.put('/projects/:id', requireAdmin, (req, res) => {
 });
 
 // حذف مشروع — يُسمح فقط إذا لم تكن له سجلات مرتبطة، وإلا فالأرشفة هي البديل
-router.delete('/projects/:id', requireAdmin, (req, res) => {
+router.delete('/projects/:id', requirePerm('manage_projects'), (req, res) => {
   const id = Number(req.params.id);
   const p = get(`SELECT * FROM projects WHERE id = ?`, id);
   if (!p) return res.status(404).json({ error: 'المشروع غير موجود' });
@@ -127,7 +127,7 @@ router.get('/checklists', (req, res) => {
   res.json(templates);
 });
 
-router.post('/checklists', requireAdmin, (req, res) => {
+router.post('/checklists', requirePerm('edit_checklists'), (req, res) => {
   const { name, category, project_type = '', items = [] } = req.body || {};
   if (!name || !category) return res.status(400).json({ error: 'اسم النموذج والفئة إلزاميان' });
   run(`INSERT INTO checklist_templates (name, category, project_type) VALUES (?,?,?)`, name, category, project_type);
@@ -137,7 +137,7 @@ router.post('/checklists', requireAdmin, (req, res) => {
   res.status(201).json({ id });
 });
 
-router.put('/checklists/:id', requireAdmin, (req, res) => {
+router.put('/checklists/:id', requirePerm('edit_checklists'), (req, res) => {
   const id = Number(req.params.id);
   const t = get(`SELECT * FROM checklist_templates WHERE id = ?`, id);
   if (!t) return res.status(404).json({ error: 'النموذج غير موجود' });
@@ -188,7 +188,7 @@ router.get('/tours/:id', (req, res) => {
      LEFT JOIN checklist_templates ct ON ct.id = t.template_id WHERE t.id = ?`, Number(req.params.id));
   if (!t) return res.status(404).json({ error: 'الجولة غير موجودة' });
   if (!canAccessProject(req.user, t.project_id)) return res.status(403).json({ error: 'لا تملك صلاحية' });
-  if (req.user.role === 'observer' && t.observer_id !== req.user.id)
+  if (t.observer_id !== req.user.id && !can(req.user, 'assign_tours'))
     return res.status(403).json({ error: 'هذه الجولة مكلف بها راصد آخر' });
   t.items = t.template_id
     ? all(`SELECT ci.*, tr.result, tr.note AS result_note, tr.severity AS result_severity
@@ -200,7 +200,7 @@ router.get('/tours/:id', (req, res) => {
   res.json(t);
 });
 
-router.post('/tours', requireAdmin, (req, res) => {
+router.post('/tours', requirePerm('assign_tours'), (req, res) => {
   const { project_id, observer_id, template_id = null, site = '', planned_date, planned_period = 'morning', notes = '' } = req.body || {};
   if (!project_id || !observer_id || !planned_date)
     return res.status(400).json({ error: 'المشروع والراصد وتاريخ الجولة حقول إلزامية' });
@@ -216,7 +216,7 @@ router.post('/tours', requireAdmin, (req, res) => {
   res.status(201).json({ id, ref });
 });
 
-router.put('/tours/:id', requireAdmin, (req, res) => {
+router.put('/tours/:id', requirePerm('assign_tours'), (req, res) => {
   const id = Number(req.params.id);
   const t = get(`SELECT * FROM tours WHERE id = ?`, id);
   if (!t) return res.status(404).json({ error: 'الجولة غير موجودة' });
@@ -234,7 +234,7 @@ router.post('/tours/:id/start', (req, res) => {
   const t = get(`SELECT t.*, p.lat AS plat, p.lng AS plng, p.geofence_radius AS radius, p.name AS pname
                  FROM tours t JOIN projects p ON p.id = t.project_id WHERE t.id = ?`, id);
   if (!t) return res.status(404).json({ error: 'الجولة غير موجودة' });
-  if (req.user.role === 'observer' && t.observer_id !== req.user.id)
+  if (t.observer_id !== req.user.id && !can(req.user, 'assign_tours'))
     return res.status(403).json({ error: 'هذه الجولة مكلف بها راصد آخر' });
   if (t.status !== 'planned') return res.status(400).json({ error: 'لا يمكن بدء جولة حالتها ليست «مخططة»' });
   const { lat, lng, geofence_note = '' } = req.body || {};
@@ -265,7 +265,7 @@ router.post('/tours/:id/finish', (req, res) => {
   const id = Number(req.params.id);
   const t = get(`SELECT * FROM tours WHERE id = ?`, id);
   if (!t) return res.status(404).json({ error: 'الجولة غير موجودة' });
-  if (req.user.role === 'observer' && t.observer_id !== req.user.id)
+  if (t.observer_id !== req.user.id && !can(req.user, 'assign_tours'))
     return res.status(403).json({ error: 'هذه الجولة مكلف بها راصد آخر' });
   if (t.status !== 'in_progress') return res.status(400).json({ error: 'الجولة ليست قيد التنفيذ' });
   const { lat, lng, notes } = req.body || {};
@@ -280,7 +280,7 @@ router.post('/tours/:id/results', (req, res) => {
   const id = Number(req.params.id);
   const t = get(`SELECT * FROM tours WHERE id = ?`, id);
   if (!t) return res.status(404).json({ error: 'الجولة غير موجودة' });
-  if (req.user.role === 'observer' && t.observer_id !== req.user.id)
+  if (t.observer_id !== req.user.id && !can(req.user, 'assign_tours'))
     return res.status(403).json({ error: 'هذه الجولة مكلف بها راصد آخر' });
   const results = Array.isArray(req.body?.results) ? req.body.results : [];
   for (const r of results) {

@@ -67,6 +67,54 @@ function requireAdmin(req, res, next) {
   next();
 }
 
+// ===== مصفوفة الصلاحيات (قابلة للتحرير من الإعدادات — مفتاح role_permissions) =====
+const ROLES = ['admin', 'safety_supervisor', 'project_manager', 'observer', 'viewer'];
+const PERMISSIONS = [
+  'record_observations',   // تسجيل ملاحظات وحوادث وإجراءات متخذة
+  'approve_observations',  // اعتماد/رفض/إحالة الملاحظات وسير عملها
+  'close_observations',    // اعتماد الإغلاق وإعادة الفتح (ملاحظات وإجراءات وحوادث)
+  'assign_tours',          // تخطيط الجولات وتوزيعها وتعديلها
+  'approve_permits',       // مراجعة واعتماد وتعليق تصاريح العمل
+  'manage_projects',       // إنشاء وتعديل وأرشفة المشاريع والأطراف والتقييمات
+  'edit_checklists',       // إدارة نماذج التفتيش
+  'view_reports',          // التقارير والمؤشرات والتصدير
+];
+const DEFAULT_MATRIX = {
+  admin:             Object.fromEntries(PERMISSIONS.map(p => [p, true])),
+  safety_supervisor: { record_observations: true, approve_observations: true, close_observations: true, assign_tours: true, approve_permits: true, manage_projects: false, edit_checklists: true, view_reports: true },
+  project_manager:   { record_observations: false, approve_observations: false, close_observations: false, assign_tours: false, approve_permits: false, manage_projects: false, edit_checklists: false, view_reports: true },
+  observer:          { record_observations: true, approve_observations: false, close_observations: false, assign_tours: false, approve_permits: false, manage_projects: false, edit_checklists: false, view_reports: true },
+  viewer:            { record_observations: false, approve_observations: false, close_observations: false, assign_tours: false, approve_permits: false, manage_projects: false, edit_checklists: false, view_reports: true },
+};
+
+function roleMatrix() {
+  try {
+    const row = get(`SELECT value FROM settings WHERE key = 'role_permissions'`);
+    const saved = row ? JSON.parse(row.value) : {};
+    const out = {};
+    for (const r of ROLES) out[r] = { ...DEFAULT_MATRIX[r], ...(saved[r] || {}) };
+    out.admin = { ...DEFAULT_MATRIX.admin }; // صلاحيات المدير كاملة دائماً — غير قابلة للتعطيل
+    return out;
+  } catch { return DEFAULT_MATRIX; }
+}
+
+function userPerms(user) {
+  return roleMatrix()[user?.role] || DEFAULT_MATRIX.viewer;
+}
+
+function can(user, perm) {
+  if (user?.role === 'admin') return true;
+  return !!userPerms(user)[perm];
+}
+
+// وسيط: يتطلب صلاحية محددة من المصفوفة
+function requirePerm(perm) {
+  return (req, res, next) => {
+    if (!can(req.user, perm)) return res.status(403).json({ error: 'صلاحية غير كافية لهذه العملية' });
+    next();
+  };
+}
+
 // نطاق المشاريع المسموح للراصد
 function allowedProjectIds(user) {
   if (user.role === 'admin') return null; // الكل
@@ -83,4 +131,5 @@ function canAccessProject(user, projectId) {
 module.exports = {
   hashPassword, verifyPassword, createSession, destroySession,
   getSessionUser, requireAuth, requireAdmin, allowedProjectIds, canAccessProject, parseCookies,
+  ROLES, PERMISSIONS, DEFAULT_MATRIX, roleMatrix, userPerms, can, requirePerm,
 };

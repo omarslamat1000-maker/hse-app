@@ -16,7 +16,7 @@ window.Pages = window.Pages || {};
       columns: [
         { title: 'اسم المستخدم', render: r => `<code>${esc(r.username)}</code>` },
         { title: 'الاسم الكامل', key: 'full_name' },
-        { title: 'الدور', render: r => r.role === 'admin' ? '<span class="badge b-brand">مدير النظام</span>' : '<span class="badge b-info">راصد ميداني</span>' },
+        { title: 'الدور', render: r => `<span class="badge ${r.role === 'admin' ? 'b-brand' : r.role === 'viewer' ? 'b-neutral' : 'b-info'}">${label('role', r.role)}</span>` },
         { title: 'الهاتف', key: 'phone' },
         { title: 'المشاريع المكلف بها', render: r => r.role === 'admin' ? 'الكل' :
           (r.project_ids || []).map(id => esc(projects.find(p => p.id === id)?.code || id)).join('، ') || '—' },
@@ -72,13 +72,13 @@ window.Pages = window.Pages || {};
         body: `<form id="usr-form" class="form-grid">
           ${fld('اسم المستخدم', `<input name="username" value="${esc(u?.username || '')}" ${isNew ? 'required' : 'disabled'}>`, { required: isNew })}
           ${fld('الاسم الكامل', `<input name="full_name" value="${esc(u?.full_name || '')}" required>`, { required: true })}
-          ${fld('الدور', select('role', [{ value: 'observer', label: 'راصد ميداني' }, { value: 'admin', label: 'مدير النظام' }], u?.role || 'observer', { allowEmpty: false }))}
+          ${fld('الدور', select('role', optsFromDict('role'), u?.role || 'observer', { allowEmpty: false }))}
           ${fld(isNew ? 'كلمة المرور' : 'كلمة مرور جديدة (اختياري)', `<input name="password" type="password" autocomplete="new-password" ${isNew ? 'required' : ''} minlength="8">`, { required: isNew })}
           ${fld('الهاتف', `<input name="phone" value="${esc(u?.phone || '')}">`)}
           ${fld('البريد الإلكتروني', `<input name="email" type="email" value="${esc(u?.email || '')}">`)}
           ${!isNew ? `<label class="fld"><span>الحساب نشط</span><input type="checkbox" name="active" style="width:auto" ${u.active ? 'checked' : ''}></label>` : ''}
           <div class="full">
-            <span style="font-size:.78rem;font-weight:700;color:var(--ink-2)">نطاق المشاريع (للراصد الميداني)</span>
+            <span style="font-size:.78rem;font-weight:700;color:var(--ink-2)">نطاق المشاريع (لغير مدير النظام)</span>
             <div class="grid cols-2" style="gap:.3rem;margin-top:.4rem">
               ${projects.map(p => `<label style="display:flex;gap:.4rem;align-items:center;font-size:.82rem">
                 <input type="checkbox" class="prj-cb" value="${p.id}" style="width:auto" ${(u?.project_ids || []).includes(p.id) ? 'checked' : ''}>
@@ -385,6 +385,13 @@ window.Pages = window.Pages || {};
             <div id="imp-status" style="font-size:.78rem;color:var(--ink-3);margin-top:.5rem"></div>
           </div>
           <div class="card" style="margin-top:1rem">
+            <h3>🔐 مصفوفة الصلاحيات</h3>
+            <p style="font-size:.78rem;color:var(--ink-2)">
+              حدد ما يستطيع كل دور فعله — تُطبق فوراً على الجميع. صلاحيات مدير النظام كاملة دائماً ولا تُعطل.
+            </p>
+            <div id="perm-matrix">${UI.spinner()}</div>
+          </div>
+          <div class="card" style="margin-top:1rem">
             <h3>🏷 الحالات المخصصة (الوسوم)</h3>
             <p style="font-size:.78rem;color:var(--ink-2)">
               حالات إضافية تُسند للسجلات (ملاحظات، إجراءات، حوادث، تصاريح، مخاطر) بجانب حالة سير العمل الأساسية —
@@ -426,6 +433,31 @@ window.Pages = window.Pages || {};
       await api('/api/settings', { method: 'PUT', body });
       toast('تم حفظ الإعدادات');
     });
+    // مصفوفة الصلاحيات
+    (async () => {
+      const pm = await api('/api/permissions');
+      const box = el.querySelector('#perm-matrix');
+      box.innerHTML = `
+        <div class="table-wrap"><table class="data" style="min-width:0">
+          <thead><tr><th>الصلاحية</th>${pm.roles.map(r => `<th style="text-align:center">${label('role', r)}</th>`).join('')}</tr></thead>
+          <tbody>${pm.permissions.map(p => `
+            <tr><td style="font-size:.8rem">${label('perm', p)}</td>
+              ${pm.roles.map(r => `<td style="text-align:center">
+                <input type="checkbox" data-role="${r}" data-perm="${p}" style="width:auto"
+                  ${pm.matrix[r]?.[p] ? 'checked' : ''} ${r === 'admin' ? 'disabled' : ''}></td>`).join('')}
+            </tr>`).join('')}
+          </tbody></table></div>
+        <button class="btn" id="perm-save" style="margin-top:.7rem">حفظ مصفوفة الصلاحيات</button>`;
+      box.querySelector('#perm-save').onclick = async () => {
+        const matrix = {};
+        box.querySelectorAll('input[data-role]').forEach(cb => {
+          (matrix[cb.dataset.role] = matrix[cb.dataset.role] || {})[cb.dataset.perm] = cb.checked;
+        });
+        await api('/api/settings', { method: 'PUT', body: { role_permissions: JSON.stringify(matrix) } });
+        toast('تم حفظ مصفوفة الصلاحيات — تُطبق فوراً');
+      };
+    })();
+
     el.querySelector('#tags-form').addEventListener('submit', async e => {
       e.preventDefault();
       const tags = e.target.tags.value.split('\n').map(x => x.trim()).filter(Boolean);

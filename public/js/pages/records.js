@@ -284,7 +284,7 @@ window.Pages = window.Pages || {};
   async function renderIncidentDetail(el, { args, user }) {
     const id = Number(args[0]);
     const i = await api(`/api/incidents/${id}`);
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role === 'admin' || !!user.perms?.approve_observations;
     document.getElementById('page-title').textContent = `حادث ${i.ref}`;
     el.innerHTML = `
       <div class="btn-row no-print" style="margin-bottom:1rem">
@@ -457,7 +457,7 @@ window.Pages = window.Pages || {};
       UI.customStatuses(),
     ]);
     const overdue = rows.filter(r => r.overdue).length;
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role === 'admin' || !!user.perms?.close_observations;
     el.innerHTML = `
       <div class="grid cols-4">
         <div class="stat"><div class="accent"></div><div class="lbl">الإجمالي</div><div class="val">${rows.length}</div></div>
@@ -588,7 +588,7 @@ window.Pages = window.Pages || {};
       api('/api/permits' + (qs ? `?${qs}` : '')),
       api('/api/auth/me').then(m => m.projects),
     ]);
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role === 'admin' || !!user.perms?.approve_permits;
     el.innerHTML = `
       <div class="grid cols-4">
         <div class="stat"><div class="accent"></div><div class="lbl">الإجمالي</div><div class="val">${rows.length}</div></div>

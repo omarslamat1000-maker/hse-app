@@ -144,7 +144,7 @@ window.Pages = window.Pages || {};
     ]);
     const canEditFields = user.role === 'admin' ||
       (o.observer_id === user.id && ['draft', 'submitted', 'rejected'].includes(o.status));
-    const transitions = (NEXT_ACTIONS[o.status] || []).filter(a => a.role === 'any' || user.role === a.role);
+    const transitions = (NEXT_ACTIONS[o.status] || []).filter(a => hasPerm(user, a.perm));
     return new Promise(resolve => {
       const m = UI.modal({
         title: `تعديل ${o.ref}`,
@@ -228,7 +228,7 @@ window.Pages = window.Pages || {};
         ${fld('من', `<input type="date" name="from" value="${esc(params.from || '')}">`)}
         ${fld('إلى', `<input type="date" name="to" value="${esc(params.to || '')}">`)}
         <button class="btn sm" type="submit">تصفية</button>
-        <button class="btn" type="button" id="obs-new">+ ملاحظة جديدة</button>
+        ${(user.role === 'admin' || user.perms?.record_observations) ? '<button class="btn" type="button" id="obs-new">+ ملاحظة جديدة</button>' : ''}
         <a class="btn secondary sm" href="/api/export/observations" download>⬇ تصدير</a>
       </form>
       <div id="obs-table"></div>`;
@@ -260,40 +260,47 @@ window.Pages = window.Pages || {};
       const q = new URLSearchParams(Object.entries(d).filter(([, v]) => v)).toString();
       location.hash = '#/observations' + (q ? `?${q}` : '');
     });
-    el.querySelector('#obs-new').onclick = () => window.ObservationForm({}).then(s => s && App.refreshRoute());
+    const newBtn = el.querySelector('#obs-new');
+    if (newBtn) newBtn.onclick = () => window.ObservationForm({}).then(s => s && App.refreshRoute());
   }
 
   // ===== تفاصيل الملاحظة وسير العمل =====
   const NEXT_ACTIONS = {
-    // status -> [{to, label, role, kind}]
-    draft: [{ to: 'submitted', label: 'تقديم الملاحظة', role: 'any' }],
+    // status -> [{to, label, perm, kind}] — perm: الصلاحية المطلوبة من المصفوفة (null = تسجيل أو إغلاق)
+    draft: [{ to: 'submitted', label: 'تقديم الملاحظة', perm: 'record_observations' }],
     submitted: [
-      { to: 'under_review', label: 'بدء المراجعة', role: 'admin' },
-      { to: 'approved', label: 'اعتماد', role: 'admin' },
-      { to: 'rejected', label: 'رفض', role: 'admin', needNote: 'سبب الرفض', kind: 'danger' },
+      { to: 'under_review', label: 'بدء المراجعة', perm: 'approve_observations' },
+      { to: 'approved', label: 'اعتماد', perm: 'approve_observations' },
+      { to: 'rejected', label: 'رفض', perm: 'approve_observations', needNote: 'سبب الرفض', kind: 'danger' },
     ],
     under_review: [
-      { to: 'approved', label: 'اعتماد', role: 'admin' },
-      { to: 'rejected', label: 'رفض', role: 'admin', needNote: 'سبب الرفض', kind: 'danger' },
+      { to: 'approved', label: 'اعتماد', perm: 'approve_observations' },
+      { to: 'rejected', label: 'رفض', perm: 'approve_observations', needNote: 'سبب الرفض', kind: 'danger' },
     ],
-    approved: [{ to: 'assigned', label: 'إحالة للمعالجة', role: 'admin' }],
-    assigned: [{ to: 'in_progress', label: 'بدء التنفيذ', role: 'admin' }],
-    in_progress: [{ to: 'pending_verification', label: 'جاهزة للتحقق', role: 'admin' }],
+    approved: [{ to: 'assigned', label: 'إحالة للمعالجة', perm: 'approve_observations' }],
+    assigned: [{ to: 'in_progress', label: 'بدء التنفيذ', perm: 'approve_observations' }],
+    in_progress: [{ to: 'pending_verification', label: 'جاهزة للتحقق', perm: 'approve_observations' }],
     pending_verification: [
-      { to: 'closed', label: 'اعتماد الإغلاق ✔', role: 'admin' },
-      { to: 'reopened', label: 'إعادة فتح — الدليل غير كافٍ', role: 'any', needNote: 'سبب إعادة الفتح', kind: 'danger' },
+      { to: 'closed', label: 'اعتماد الإغلاق ✔', perm: 'close_observations' },
+      { to: 'reopened', label: 'إعادة فتح — الدليل غير كافٍ', perm: null, needNote: 'سبب إعادة الفتح', kind: 'danger' },
     ],
-    rejected: [{ to: 'submitted', label: 'إعادة التقديم', role: 'any' }],
-    reopened: [{ to: 'in_progress', label: 'إعادة التنفيذ', role: 'admin' }],
-    closed: [{ to: 'reopened', label: 'إعادة فتح', role: 'any', needNote: 'سبب إعادة الفتح', kind: 'danger' }],
+    rejected: [{ to: 'submitted', label: 'إعادة التقديم', perm: 'record_observations' }],
+    reopened: [{ to: 'in_progress', label: 'إعادة التنفيذ', perm: 'approve_observations' }],
+    closed: [{ to: 'reopened', label: 'إعادة فتح', perm: null, needNote: 'سبب إعادة الفتح', kind: 'danger' }],
   };
+  // هل يملك المستخدم صلاحية هذا الانتقال؟
+  function hasPerm(user, perm) {
+    if (user.role === 'admin') return true;
+    if (perm === null) return !!(user.perms?.record_observations || user.perms?.close_observations);
+    return !!user.perms?.[perm];
+  }
 
   async function renderDetail(el, { args, user }) {
     const id = Number(args[0]);
     const o = await api(`/api/observations/${id}`);
     document.getElementById('page-title').textContent = `${label('otype', o.otype)} ${o.ref}`;
     const isAdmin = user.role === 'admin';
-    const actions = (NEXT_ACTIONS[o.status] || []).filter(a => a.role === 'any' || user.role === a.role);
+    const actions = (NEXT_ACTIONS[o.status] || []).filter(a => hasPerm(user, a.perm));
     const before = o.attachments.filter(a => a.kind === 'before' || a.kind === 'photo');
     const after = o.attachments.filter(a => a.kind === 'after' || a.kind === 'evidence');
 

@@ -54,6 +54,9 @@ const users = [
   ['rased2', 'Rased@123',  'خالد الشهري',       'observer', '0501000003', 'rased2@hse.gov.sa'],
   ['rased3', 'Rased@123',  'سعود القحطاني',     'observer', '0501000004', 'rased3@hse.gov.sa'],
   ['rased4', 'Rased@123',  'فهد الدوسري',       'observer', '0501000005', 'rased4@hse.gov.sa'],
+  ['mushrif', 'Mushrif@123', 'م. ناصر الغامدي', 'safety_supervisor', '0501000006', 'mushrif@hse.gov.sa'],
+  ['mudir',   'Mudir@1234',  'م. سلمان العمري',  'project_manager',   '0501000007', 'mudir@hse.gov.sa'],
+  ['viewer',  'Viewer@123',  'د. هند القحطاني',  'viewer',            '0501000008', 'viewer@hse.gov.sa'],
 ];
 for (const [u, p, name, role, phone, email] of users)
   run(`INSERT INTO users (username, password_hash, full_name, role, phone, email) VALUES (?,?,?,?,?,?)`,
@@ -96,6 +99,10 @@ projects.forEach((p, i) => {
 // تكليف الراصدين: كل راصد على مشروعين
 const assignments = [[2,1],[2,2],[3,3],[3,4],[4,5],[4,6],[5,7],[5,1],[2,5],[3,6]];
 for (const [u, p] of assignments) run(`INSERT INTO project_assignments (user_id, project_id) VALUES (?,?)`, u, p);
+// نطاقات الأدوار الجديدة: المشرف على 1-4، مدير المشروع على 1-2، القراءة على الكل
+for (const p of [1,2,3,4]) run(`INSERT INTO project_assignments (user_id, project_id) VALUES (6,?)`, p);
+for (const p of [1,2]) run(`INSERT INTO project_assignments (user_id, project_id) VALUES (7,?)`, p);
+for (const p of [1,2,3,4,5,6,7,8]) run(`INSERT INTO project_assignments (user_id, project_id) VALUES (8,?)`, p);
 
 // ===== نماذج التفتيش (24 فئة) =====
 const TEMPLATES = [

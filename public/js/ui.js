@@ -44,6 +44,20 @@
     kpi_status: { good: 'جيد', warning: 'يحتاج انتباه', critical: 'متدنٍ' },
     priority: { low: 'منخفضة', medium: 'متوسطة', high: 'عالية', critical: 'حرجة' },
     rca: { '5whys': 'الأسباب الخمسة (5 Whys)', fishbone: 'مخطط عظمة السمكة', rca: 'تحليل السبب الجذري RCA' },
+    role: {
+      admin: 'مدير النظام', safety_supervisor: 'مشرف سلامة', project_manager: 'مدير مشروع',
+      observer: 'راصد ميداني', viewer: 'قراءة فقط',
+    },
+    perm: {
+      record_observations: 'تسجيل الملاحظات والحوادث والإجراءات',
+      approve_observations: 'اعتماد الملاحظات وإدارة سير عملها',
+      close_observations: 'اعتماد الإغلاق وإعادة الفتح',
+      assign_tours: 'تخطيط الجولات وتوزيعها',
+      approve_permits: 'مراجعة واعتماد التصاريح',
+      manage_projects: 'إدارة المشاريع والمقاولين والتقييم',
+      edit_checklists: 'إدارة نماذج التفتيش',
+      view_reports: 'التقارير والمؤشرات والتصدير',
+    },
   };
   function label(dict, key) { return (L[dict] && L[dict][key]) || key || '—'; }
 
