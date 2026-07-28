@@ -68,21 +68,25 @@ coreRouter.use(requireAuth);
 
 // ===== المستخدمون (مدير النظام) =====
 coreRouter.get('/users', requireAdmin, (req, res) => {
-  const users = all(`SELECT id, username, full_name, role, phone, email, active, created_at FROM users ORDER BY id`);
+  const users = all(`SELECT u.id, u.username, u.full_name, u.role, u.party_id, pa.name AS party_name,
+    u.phone, u.email, u.active, u.created_at FROM users u LEFT JOIN parties pa ON pa.id = u.party_id ORDER BY u.id`);
   const assignments = all(`SELECT user_id, project_id FROM project_assignments`);
   for (const u of users) u.project_ids = assignments.filter(a => a.user_id === u.id).map(a => a.project_id);
   res.json(users);
 });
 
 coreRouter.post('/users', requireAdmin, (req, res) => {
-  const { username, password, full_name, role, phone = '', email = '', project_ids = [] } = req.body || {};
+  const { username, password, full_name, role, phone = '', email = '', project_ids = [], party_id = null } = req.body || {};
   if (!username || !password || !full_name || !ROLES.includes(role))
     return res.status(400).json({ error: 'بيانات المستخدم غير مكتملة' });
   if (String(password).length < 8) return res.status(400).json({ error: 'كلمة المرور يجب ألا تقل عن 8 أحرف' });
+  if (role === 'contractor' && !party_id)
+    return res.status(400).json({ error: 'اختر شركة المقاول لحساب ممثل المقاول' });
   if (get(`SELECT id FROM users WHERE username = ?`, String(username).trim().toLowerCase()))
     return res.status(409).json({ error: 'اسم المستخدم مستخدم مسبقاً' });
-  run(`INSERT INTO users (username, password_hash, full_name, role, phone, email) VALUES (?,?,?,?,?,?)`,
-    String(username).trim().toLowerCase(), hashPassword(password), full_name, role, phone, email);
+  run(`INSERT INTO users (username, password_hash, full_name, role, party_id, phone, email) VALUES (?,?,?,?,?,?,?)`,
+    String(username).trim().toLowerCase(), hashPassword(password), full_name, role,
+    role === 'contractor' ? Number(party_id) : null, phone, email);
   const id = get(`SELECT last_insert_rowid() AS id`).id;
   for (const pid of project_ids) run(`INSERT OR IGNORE INTO project_assignments (user_id, project_id) VALUES (?,?)`, id, pid);
   logAudit(req, 'create', 'user', id, `إنشاء مستخدم ${username}`);
@@ -93,9 +97,11 @@ coreRouter.put('/users/:id', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const user = get(`SELECT * FROM users WHERE id = ?`, id);
   if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
-  const { full_name, role, phone, email, active, password, project_ids } = req.body || {};
-  run(`UPDATE users SET full_name = ?, role = ?, phone = ?, email = ?, active = ? WHERE id = ?`,
-    full_name ?? user.full_name, ROLES.includes(role) ? role : user.role,
+  const { full_name, role, phone, email, active, password, project_ids, party_id } = req.body || {};
+  const newRole = ROLES.includes(role) ? role : user.role;
+  run(`UPDATE users SET full_name = ?, role = ?, party_id = ?, phone = ?, email = ?, active = ? WHERE id = ?`,
+    full_name ?? user.full_name, newRole,
+    newRole === 'contractor' ? (party_id !== undefined ? Number(party_id) || null : user.party_id) : null,
     phone ?? user.phone, email ?? user.email, active === undefined ? user.active : (active ? 1 : 0), id);
   if (password) {
     if (String(password).length < 8) return res.status(400).json({ error: 'كلمة المرور يجب ألا تقل عن 8 أحرف' });

@@ -104,8 +104,17 @@
     { route: 'settings', title: 'الإعدادات', icon: 'settings', roles: ['admin'] },
   ];
 
+  // قائمة مخصصة لبوابة المقاول
+  const CONTRACTOR_NAV = [
+    { group: 'بوابة المقاول' },
+    { route: 'portal', title: 'لوحة المتابعة', icon: 'dashboard' },
+    { route: 'observations', title: 'الملاحظات المحالة علينا', icon: 'obs' },
+    { route: 'actions', title: 'الإجراءات التصحيحية', icon: 'actions' },
+  ];
+
   function renderShell() {
-    const navHtml = NAV.filter(n => !n.roles || n.roles.includes(currentUser.role)).map(n =>
+    const navList = currentUser.role === 'contractor' ? CONTRACTOR_NAV : NAV;
+    const navHtml = navList.filter(n => !n.roles || n.roles.includes(currentUser.role)).map(n =>
       n.group
         ? `<div class="nav-group">${esc(n.group)}</div>`
         : `<a href="#/${n.route}" data-route="${n.route}">${ICONS[n.icon] || ''}<span>${esc(n.title)}</span>
@@ -133,7 +142,7 @@
             <div class="user-chip">
               <div class="avatar">${esc(currentUser.full_name.trim().charAt(0))}</div>
               <div class="meta"><div class="n">${esc(currentUser.full_name)}</div>
-              <div class="r">${currentUser.role === 'admin' ? 'مدير النظام' : 'راصد ميداني'}</div></div>
+              <div class="r">${UI.label('role', currentUser.role)}</div></div>
             </div>
             <button class="icon-btn" id="logout-btn" title="تسجيل الخروج">⎋</button>
           </header>
@@ -257,7 +266,10 @@
     }
     window.App.user = () => currentUser;
     renderShell();
-    if (!location.hash) location.hash = currentUser.role === 'observer' ? '#/field' : '#/dashboard';
+    if (!location.hash) location.hash =
+      currentUser.role === 'observer' ? '#/field' :
+      currentUser.role === 'contractor' ? '#/portal' : '#/dashboard';
+    if (currentUser.role === 'contractor' && ['#/dashboard', ''].includes(location.hash)) location.hash = '#/portal';
     await refreshRoute();
     pollNotifications();
     setInterval(pollNotifications, 60000);

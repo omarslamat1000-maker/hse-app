@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   full_name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('admin','safety_supervisor','project_manager','observer','viewer')),
+  role TEXT NOT NULL CHECK (role IN ('admin','safety_supervisor','project_manager','observer','viewer','contractor')),
+  party_id INTEGER REFERENCES parties(id),
   phone TEXT DEFAULT '',
   email TEXT DEFAULT '',
   active INTEGER NOT NULL DEFAULT 1,
@@ -368,10 +369,10 @@ db.exec(SCHEMA);
 for (const t of ['observations', 'actions', 'incidents', 'permits', 'risks']) {
   try { db.exec(`ALTER TABLE ${t} ADD COLUMN status_tag TEXT NOT NULL DEFAULT ''`); } catch { /* موجود مسبقاً */ }
 }
-// ترحيل: توسيع أدوار المستخدمين (القيد القديم يسمح بدورين فقط) — إعادة بناء الجدول
+// ترحيل: توسيع أدوار المستخدمين + ربط ممثل المقاول بشركته — إعادة بناء الجدول عند الحاجة
 {
   const ddl = db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='users'`).get();
-  if (ddl && !ddl.sql.includes('safety_supervisor')) {
+  if (ddl && !ddl.sql.includes("'contractor'")) {
     db.exec(`PRAGMA foreign_keys = OFF`);
     db.exec('BEGIN');
     db.exec(`CREATE TABLE users_new (
@@ -379,7 +380,8 @@ for (const t of ['observations', 'actions', 'incidents', 'permits', 'risks']) {
       username TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       full_name TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('admin','safety_supervisor','project_manager','observer','viewer')),
+      role TEXT NOT NULL CHECK (role IN ('admin','safety_supervisor','project_manager','observer','viewer','contractor')),
+      party_id INTEGER REFERENCES parties(id),
       phone TEXT DEFAULT '',
       email TEXT DEFAULT '',
       active INTEGER NOT NULL DEFAULT 1,

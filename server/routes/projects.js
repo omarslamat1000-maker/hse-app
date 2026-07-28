@@ -1,7 +1,7 @@
 // المشاريع، الجولات الميدانية، قوائم التفتيش
 const express = require('express');
 const { all, get, run, nextRef, riskLevel, slaDays } = require('../db');
-const { requireAuth, requireAdmin, requirePerm, can, allowedProjectIds, canAccessProject } = require('../auth');
+const { requireAuth, requireAdmin, requirePerm, can, noContractor, allowedProjectIds, canAccessProject } = require('../auth');
 const { notifyUser, notifyAdmins } = require('../escalation');
 
 const router = express.Router();
@@ -156,7 +156,7 @@ router.put('/checklists/:id', requirePerm('edit_checklists'), (req, res) => {
 });
 
 // ===== الجولات =====
-router.get('/tours', (req, res) => {
+router.get('/tours', noContractor, (req, res) => {
   const scope = projectScope(req);
   const filters = [`t.project_id IN (SELECT id FROM projects WHERE ${scope.where})`];
   const params = [...scope.params];
@@ -180,7 +180,7 @@ router.get('/tours', (req, res) => {
   res.json(rows);
 });
 
-router.get('/tours/:id', (req, res) => {
+router.get('/tours/:id', noContractor, (req, res) => {
   const t = get(
     `SELECT t.*, p.name AS project_name, p.lat AS project_lat, p.lng AS project_lng, p.geofence_radius,
             u.full_name AS observer_name, ct.name AS template_name

@@ -46,7 +46,7 @@
     rca: { '5whys': 'الأسباب الخمسة (5 Whys)', fishbone: 'مخطط عظمة السمكة', rca: 'تحليل السبب الجذري RCA' },
     role: {
       admin: 'مدير النظام', safety_supervisor: 'مشرف سلامة', project_manager: 'مدير مشروع',
-      observer: 'راصد ميداني', viewer: 'قراءة فقط',
+      observer: 'راصد ميداني', viewer: 'قراءة فقط', contractor: 'ممثل مقاول',
     },
     perm: {
       record_observations: 'تسجيل الملاحظات والحوادث والإجراءات',

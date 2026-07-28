@@ -707,6 +707,68 @@ window.Pages = window.Pages || {};
     }
   }
 
+  // ===== بوابة المقاول =====
+  async function renderPortal(el, { user }) {
+    const [obs, actions] = await Promise.all([
+      api('/api/observations'),
+      api('/api/actions'),
+    ]);
+    const open = obs.filter(o => o.status !== 'closed');
+    const awaitingStart = obs.filter(o => ['assigned', 'reopened'].includes(o.status));
+    const inProgress = obs.filter(o => o.status === 'in_progress');
+    const pendingVerify = obs.filter(o => o.status === 'pending_verification');
+    const overdue = obs.filter(o => o.overdue);
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:1rem;background:var(--brand-soft);border-color:var(--brand)">
+        <b>مرحباً ${esc(user.full_name)}</b>
+        <div style="font-size:.82rem;color:var(--ink-2);margin-top:.2rem">
+          هذه الملاحظات والمخالفات المحالة على شركتكم. المطلوب: بدء التنفيذ، توثيق «الإجراءات المتخذة»
+          مع صور المعالجة، ثم الضغط على «جاهزة للتحقق» — ويبقى اعتماد الإغلاق لإدارة السلامة.
+        </div>
+      </div>
+      <div class="grid cols-4">
+        <div class="stat critical"><div class="accent"></div><div class="lbl">متجاوزة الاستحقاق</div><div class="val">${overdue.length}</div></div>
+        <div class="stat warn"><div class="accent"></div><div class="lbl">بانتظار بدء التنفيذ</div><div class="val">${awaitingStart.length}</div></div>
+        <div class="stat info"><div class="accent"></div><div class="lbl">جارٍ التنفيذ</div><div class="val">${inProgress.length}</div></div>
+        <div class="stat good"><div class="accent"></div><div class="lbl">بانتظار تحقق الإدارة</div><div class="val">${pendingVerify.length}</div></div>
+      </div>
+      <div class="card" style="margin-top:1rem">
+        <h3>الملاحظات المفتوحة على شركتكم (${open.length})</h3>
+        <div id="portal-obs"></div>
+      </div>
+      <div class="card" style="margin-top:1rem">
+        <h3>الإجراءات التصحيحية (${actions.filter(a => a.status !== 'closed').length} مفتوح)</h3>
+        <div id="portal-acts"></div>
+      </div>`;
+    const t1 = el.querySelector('#portal-obs');
+    t1.innerHTML = UI.dataTable({
+      columns: [
+        { title: 'المرجع', key: 'ref' },
+        { title: 'المشروع', key: 'project_name' },
+        { title: 'الوصف', render: r => esc(r.description).slice(0, 60) },
+        { title: 'الخطورة', render: r => badge('severity', r.severity) },
+        { title: 'الاستحقاق', render: r => fmtDate(r.due_date) + (r.overdue ? ' <span class="badge b-critical">متأخرة</span>' : '') },
+        { title: 'الحالة', render: r => badge('obs_status', r.status) },
+        { title: 'إجراءات', render: r => `<a class="btn sm" href="#/observations/${r.id}">فتح ومعالجة</a>` },
+      ],
+      rows: open,
+      empty: 'لا توجد ملاحظات مفتوحة على شركتكم — أداء ممتاز',
+    });
+    el.querySelector('#portal-acts').innerHTML = UI.dataTable({
+      columns: [
+        { title: 'المرجع', key: 'ref' },
+        { title: 'المشروع', key: 'project_name' },
+        { title: 'الإجراء المطلوب', render: r => esc(r.required_action || r.description).slice(0, 60) },
+        { title: 'الاستحقاق', render: r => fmtDate(r.due_date) },
+        { title: 'الإنجاز', render: r => `${r.progress}%` },
+        { title: 'الحالة', render: r => badge('action_status', r.status) },
+      ],
+      rows: actions.filter(a => a.status !== 'closed'),
+      empty: 'لا توجد إجراءات مفتوحة',
+    });
+  }
+
+  window.Pages.portal = { title: 'بوابة المقاول — لوحة المتابعة', render: renderPortal, roles: ['contractor', 'admin'] };
   window.Pages.risks = { title: 'تقييم المخاطر', render: renderRisks };
   window.Pages.incidents = {
     title: 'إدارة الحوادث والإصابات',

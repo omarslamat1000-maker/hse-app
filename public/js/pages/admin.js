@@ -5,7 +5,8 @@ window.Pages = window.Pages || {};
 
   // ===== المستخدمون =====
   async function renderUsers(el) {
-    const [users, projects] = await Promise.all([api('/api/users'), api('/api/projects')]);
+    const [users, projects, parties] = await Promise.all([api('/api/users'), api('/api/projects'), api('/api/parties')]);
+    const contractorsList = parties.filter(p => p.kind === 'contractor');
     el.innerHTML = `
       <div class="filters">
         <button class="btn" id="usr-add">+ مستخدم جديد</button>
@@ -18,8 +19,9 @@ window.Pages = window.Pages || {};
         { title: 'الاسم الكامل', key: 'full_name' },
         { title: 'الدور', render: r => `<span class="badge ${r.role === 'admin' ? 'b-brand' : r.role === 'viewer' ? 'b-neutral' : 'b-info'}">${label('role', r.role)}</span>` },
         { title: 'الهاتف', key: 'phone' },
-        { title: 'المشاريع المكلف بها', render: r => r.role === 'admin' ? 'الكل' :
-          (r.project_ids || []).map(id => esc(projects.find(p => p.id === id)?.code || id)).join('، ') || '—' },
+        { title: 'المشاريع / الشركة', render: r => r.role === 'admin' ? 'الكل'
+          : r.role === 'contractor' ? esc(r.party_name || '—')
+          : (r.project_ids || []).map(id => esc(projects.find(p => p.id === id)?.code || id)).join('، ') || '—' },
         { title: 'الحالة', render: r => r.active ? '<span class="badge b-good">نشط</span>' : '<span class="badge b-critical">معطل</span>' },
         { title: 'إجراءات', render: r => `
           <div class="btn-row" style="flex-wrap:nowrap">
@@ -73,6 +75,7 @@ window.Pages = window.Pages || {};
           ${fld('اسم المستخدم', `<input name="username" value="${esc(u?.username || '')}" ${isNew ? 'required' : 'disabled'}>`, { required: isNew })}
           ${fld('الاسم الكامل', `<input name="full_name" value="${esc(u?.full_name || '')}" required>`, { required: true })}
           ${fld('الدور', select('role', optsFromDict('role'), u?.role || 'observer', { allowEmpty: false }))}
+          ${fld('شركة المقاول (لدور ممثل المقاول)', select('party_id', contractorsList.map(c => ({ value: c.id, label: c.name })), u?.party_id || '', { emptyLabel: '—' }))}
           ${fld(isNew ? 'كلمة المرور' : 'كلمة مرور جديدة (اختياري)', `<input name="password" type="password" autocomplete="new-password" ${isNew ? 'required' : ''} minlength="8">`, { required: isNew })}
           ${fld('الهاتف', `<input name="phone" value="${esc(u?.phone || '')}">`)}
           ${fld('البريد الإلكتروني', `<input name="email" type="email" value="${esc(u?.email || '')}">`)}
@@ -90,6 +93,7 @@ window.Pages = window.Pages || {};
       });
       m.el.querySelector('#usr-save').onclick = async () => {
         const d = UI.formData(m.el.querySelector('#usr-form'));
+        d.party_id = d.party_id ? Number(d.party_id) : null;
         d.project_ids = [...m.el.querySelectorAll('.prj-cb:checked')].map(cb => Number(cb.value));
         if (!isNew) d.active = m.el.querySelector('[name="active"]')?.checked;
         if (!d.password) delete d.password;

@@ -1,7 +1,16 @@
 // الملاحظات والمخالفات، المخاطر، الحوادث، الإجراءات التصحيحية، التصاريح، التقييمات
 const express = require('express');
 const { all, get, run, nextRef, riskLevel, slaDays } = require('../db');
-const { requireAuth, requireAdmin, requirePerm, can, allowedProjectIds, canAccessProject } = require('../auth');
+const { requireAuth, requireAdmin, requirePerm, can, noContractor, allowedProjectIds, canAccessProject } = require('../auth');
+
+// هل السجل ضمن نطاق شركة ممثل المقاول ومحال على المقاول؟
+function contractorOwns(user, obsRow) {
+  if (user.role !== 'contractor' || !user.party_id) return false;
+  const proj = get(`SELECT contractor_id FROM projects WHERE id = ?`, obsRow.project_id);
+  return !!proj && proj.contractor_id === user.party_id && obsRow.responsible_party === 'contractor';
+}
+// الحالات الظاهرة للمقاول (بعد الاعتماد فقط)
+const CONTRACTOR_HIDDEN = `('draft','submitted','under_review','rejected')`;
 const { notifyAdmins, notifyUser } = require('../escalation');
 const { logAudit } = require('./core');
 
@@ -53,12 +62,21 @@ router.get('/updates', (req, res) => {
   res.json(rows);
 });
 
-router.post('/updates', requirePerm('record_observations'), (req, res) => {
+router.post('/updates', (req, res) => {
   const { entity_type, entity_id, body, progress } = req.body || {};
   if (!body || !String(body).trim()) return res.status(400).json({ error: 'أدخل وصف الإجراء المتخذ' });
   const ent = resolveEntity(entity_type, entity_id);
   if (!ent) return res.status(404).json({ error: 'السجل غير موجود' });
   if (!canAccessProject(req.user, ent.row.project_id)) return res.status(403).json({ error: 'لا تملك صلاحية على هذا المشروع' });
+  // ممثل المقاول يوثق على ملاحظات شركته وإجراءاتها فقط؛ وغيره يحتاج صلاحية التسجيل
+  if (req.user.role === 'contractor') {
+    if (!['observation', 'action'].includes(entity_type))
+      return res.status(403).json({ error: 'توثيق المقاول متاح على الملاحظات والإجراءات التصحيحية فقط' });
+    if (entity_type === 'observation' && !contractorOwns(req.user, ent.row))
+      return res.status(403).json({ error: 'هذه الملاحظة ليست محالة على شركتك' });
+  } else if (!can(req.user, 'record_observations')) {
+    return res.status(403).json({ error: 'صلاحية غير كافية لتوثيق الإجراءات' });
+  }
   if (ent.def.final.includes(ent.row.status))
     return res.status(400).json({ error: 'لا يمكن إضافة إجراءات على سجل مغلق أو ملغى — أعد فتحه أولاً' });
   const prog = progress === undefined || progress === null || progress === ''
@@ -109,6 +127,9 @@ router.get('/observations', (req, res) => {
   const filters = ['o.archived = 0'];
   const params = [];
   scopeFilter(req, 'o.project_id', filters, params);
+  // المقاول يرى ملاحظات شركته المحالة عليه بعد الاعتماد فقط
+  if (req.user.role === 'contractor')
+    filters.push(`o.responsible_party = 'contractor' AND o.status NOT IN ${CONTRACTOR_HIDDEN}`);
   const { status, severity, category, project_id, otype, observer_id, from, to, q, escalated, open_only, status_tag } = req.query;
   if (status_tag) { filters.push('o.status_tag = ?'); params.push(status_tag); }
   if (status) { filters.push('o.status = ?'); params.push(status); }
@@ -138,6 +159,9 @@ router.get('/observations/:id', (req, res) => {
      WHERE o.id = ?`, Number(req.params.id));
   if (!o) return res.status(404).json({ error: 'الملاحظة غير موجودة' });
   if (!canAccessProject(req.user, o.project_id)) return res.status(403).json({ error: 'لا تملك صلاحية' });
+  if (req.user.role === 'contractor' &&
+      (!contractorOwns(req.user, o) || ['draft', 'submitted', 'under_review', 'rejected'].includes(o.status)))
+    return res.status(403).json({ error: 'هذه الملاحظة ليست محالة على شركتك' });
   o.history = all(
     `SELECT h.*, u.full_name FROM observation_history h LEFT JOIN users u ON u.id = h.by_user
      WHERE h.observation_id = ? ORDER BY h.id`, o.id);
@@ -251,7 +275,10 @@ router.post('/observations/:id/transition', (req, res) => {
   const allowed = OBS_TRANSITIONS[o.status] || [];
   if (!allowed.includes(to))
     return res.status(400).json({ error: `لا يمكن الانتقال من «${o.status}» إلى «${to}»` });
-  if (!canTransitionObs(req.user, to)) return res.status(403).json({ error: 'صلاحية غير كافية لهذا الانتقال' });
+  // ممثل المقاول: يبدأ التنفيذ ويطلب التحقق على ملاحظات شركته فقط
+  const contractorAllowed = ['in_progress', 'pending_verification'].includes(to) && contractorOwns(req.user, o);
+  if (!canTransitionObs(req.user, to) && !contractorAllowed)
+    return res.status(403).json({ error: 'صلاحية غير كافية لهذا الانتقال' });
 
   if (to === 'rejected' && !note) return res.status(400).json({ error: 'سبب الرفض إلزامي' });
   if (to === 'reopened' && !note) return res.status(400).json({ error: 'سبب إعادة الفتح إلزامي' });
@@ -287,7 +314,7 @@ router.post('/observations/:id/transition', (req, res) => {
 });
 
 // ===== المخاطر =====
-router.get('/risks', (req, res) => {
+router.get('/risks', noContractor, (req, res) => {
   const filters = ['r.archived = 0'];
   const params = [];
   scopeFilter(req, 'r.project_id', filters, params);
@@ -342,7 +369,7 @@ router.put('/risks/:id', (req, res) => {
 });
 
 // ===== الحوادث =====
-router.get('/incidents', (req, res) => {
+router.get('/incidents', noContractor, (req, res) => {
   const filters = ['i.archived = 0'];
   const params = [];
   scopeFilter(req, 'i.project_id', filters, params);
@@ -357,7 +384,7 @@ router.get('/incidents', (req, res) => {
      WHERE ${filters.join(' AND ')} ORDER BY i.occurred_at DESC LIMIT 500`, ...params));
 });
 
-router.get('/incidents/:id', (req, res) => {
+router.get('/incidents/:id', noContractor, (req, res) => {
   const i = get(`SELECT i.*, p.name AS project_name FROM incidents i JOIN projects p ON p.id = i.project_id WHERE i.id = ?`,
     Number(req.params.id));
   if (!i) return res.status(404).json({ error: 'الحادث غير موجود' });
@@ -419,7 +446,7 @@ router.put('/incidents/:id', (req, res) => {
 });
 
 // ===== اجتماعات التوعية Toolbox Talks =====
-router.get('/talks', (req, res) => {
+router.get('/talks', noContractor, (req, res) => {
   const filters = ['1=1'];
   const params = [];
   scopeFilter(req, 't.project_id', filters, params);
@@ -549,7 +576,7 @@ const PERMIT_TRANSITIONS = {
   suspended: ['active', 'cancelled', 'closed'],
 };
 
-router.get('/permits', (req, res) => {
+router.get('/permits', noContractor, (req, res) => {
   const filters = ['pr.archived = 0'];
   const params = [];
   scopeFilter(req, 'pr.project_id', filters, params);
@@ -609,7 +636,7 @@ router.post('/permits/:id/transition', (req, res) => {
 });
 
 // ===== تقييم المقاولين والاستشاريين =====
-router.get('/evaluations', (req, res) => {
+router.get('/evaluations', noContractor, (req, res) => {
   const { party_id, period } = req.query;
   const filters = ['1=1'];
   const params = [];

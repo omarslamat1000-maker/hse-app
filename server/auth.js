@@ -32,7 +32,7 @@ function destroySession(token) {
 function getSessionUser(token) {
   if (!token) return null;
   const row = get(
-    `SELECT u.id, u.username, u.full_name, u.role, u.active, s.expires_at
+    `SELECT u.id, u.username, u.full_name, u.role, u.party_id, u.active, s.expires_at
      FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?`, token);
   if (!row) return null;
   if (new Date(row.expires_at) < new Date() || !row.active) {
@@ -68,7 +68,7 @@ function requireAdmin(req, res, next) {
 }
 
 // ===== مصفوفة الصلاحيات (قابلة للتحرير من الإعدادات — مفتاح role_permissions) =====
-const ROLES = ['admin', 'safety_supervisor', 'project_manager', 'observer', 'viewer'];
+const ROLES = ['admin', 'safety_supervisor', 'project_manager', 'observer', 'viewer', 'contractor'];
 const PERMISSIONS = [
   'record_observations',   // تسجيل ملاحظات وحوادث وإجراءات متخذة
   'approve_observations',  // اعتماد/رفض/إحالة الملاحظات وسير عملها
@@ -85,7 +85,15 @@ const DEFAULT_MATRIX = {
   project_manager:   { record_observations: false, approve_observations: false, close_observations: false, assign_tours: false, approve_permits: false, manage_projects: false, edit_checklists: false, view_reports: true },
   observer:          { record_observations: true, approve_observations: false, close_observations: false, assign_tours: false, approve_permits: false, manage_projects: false, edit_checklists: false, view_reports: true },
   viewer:            { record_observations: false, approve_observations: false, close_observations: false, assign_tours: false, approve_permits: false, manage_projects: false, edit_checklists: false, view_reports: true },
+  // ممثل المقاول: قدراته محددة ببوابته (توثيق المعالجة ورفع الأدلة وطلب التحقق) وتُفرض برمجياً
+  contractor:        { record_observations: false, approve_observations: false, close_observations: false, assign_tours: false, approve_permits: false, manage_projects: false, edit_checklists: false, view_reports: false },
 };
+
+// وسيط: مسار غير متاح لحساب المقاول
+function noContractor(req, res, next) {
+  if (req.user?.role === 'contractor') return res.status(403).json({ error: 'هذه الشاشة غير متاحة لحساب المقاول' });
+  next();
+}
 
 function roleMatrix() {
   try {
@@ -115,10 +123,16 @@ function requirePerm(perm) {
   };
 }
 
-// نطاق المشاريع المسموح للراصد
+// نطاق المشاريع المسموح للمستخدم
 function allowedProjectIds(user) {
   if (user.role === 'admin') return null; // الكل
   const { all } = require('./db');
+  // ممثل المقاول: مشاريع شركته فقط
+  if (user.role === 'contractor') {
+    if (!user.party_id) return [];
+    return all(`SELECT id AS project_id FROM projects WHERE contractor_id = ? AND archived = 0`, user.party_id)
+      .map(r => r.project_id);
+  }
   return all(`SELECT project_id FROM project_assignments WHERE user_id = ?`, user.id).map(r => r.project_id);
 }
 
@@ -131,5 +145,5 @@ function canAccessProject(user, projectId) {
 module.exports = {
   hashPassword, verifyPassword, createSession, destroySession,
   getSessionUser, requireAuth, requireAdmin, allowedProjectIds, canAccessProject, parseCookies,
-  ROLES, PERMISSIONS, DEFAULT_MATRIX, roleMatrix, userPerms, can, requirePerm,
+  ROLES, PERMISSIONS, DEFAULT_MATRIX, roleMatrix, userPerms, can, requirePerm, noContractor,
 };

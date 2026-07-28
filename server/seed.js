@@ -22,7 +22,7 @@ db.exec('BEGIN');
 // تنظيف
 ['audit_log','notifications','progress_updates','toolbox_talks','evaluations','permits','actions','incidents','risks',
  'observation_history','observations','tour_results','tours','checklist_items','checklist_templates',
- 'attachments','project_assignments','projects','parties','sessions','users','settings']
+ 'attachments','project_assignments','projects','sessions','users','parties','settings']
   .forEach(t => db.exec(`DELETE FROM ${t}`));
 db.exec(`DELETE FROM sqlite_sequence`);
 
@@ -57,6 +57,7 @@ const users = [
   ['mushrif', 'Mushrif@123', 'م. ناصر الغامدي', 'safety_supervisor', '0501000006', 'mushrif@hse.gov.sa'],
   ['mudir',   'Mudir@1234',  'م. سلمان العمري',  'project_manager',   '0501000007', 'mudir@hse.gov.sa'],
   ['viewer',  'Viewer@123',  'د. هند القحطاني',  'viewer',            '0501000008', 'viewer@hse.gov.sa'],
+  ['moqawil', 'Moqawil@123', 'م. خالد رمضان',    'contractor',        '0501000009', 'moqawil@contractor.sa'],
 ];
 for (const [u, p, name, role, phone, email] of users)
   run(`INSERT INTO users (username, password_hash, full_name, role, phone, email) VALUES (?,?,?,?,?,?)`,
@@ -103,6 +104,8 @@ for (const [u, p] of assignments) run(`INSERT INTO project_assignments (user_id,
 for (const p of [1,2,3,4]) run(`INSERT INTO project_assignments (user_id, project_id) VALUES (6,?)`, p);
 for (const p of [1,2]) run(`INSERT INTO project_assignments (user_id, project_id) VALUES (7,?)`, p);
 for (const p of [1,2,3,4,5,6,7,8]) run(`INSERT INTO project_assignments (user_id, project_id) VALUES (8,?)`, p);
+// ممثل المقاول مرتبط بشركة البناء المتحدة للمقاولات (مشاريعها: 1 و6)
+run(`UPDATE users SET party_id = 1 WHERE username = 'moqawil'`);
 
 // ===== نماذج التفتيش (24 فئة) =====
 const TEMPLATES = [

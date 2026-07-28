@@ -322,7 +322,7 @@ async function login(user, password) {
   assert('منع القراءة فقط من التسجيل', r.status === 403);
   // تعديل المصفوفة يغير السلوك فوراً: سحب اعتماد الملاحظات من المشرف
   r = await req('admin', 'GET', '/api/permissions');
-  assert('قراءة مصفوفة الصلاحيات', r.status === 200 && r.data.roles.length === 5 && r.data.permissions.length === 8);
+  assert('قراءة مصفوفة الصلاحيات', r.status === 200 && r.data.roles.length === 6 && r.data.permissions.length === 8);
   const matrix = r.data.matrix;
   matrix.safety_supervisor.approve_observations = false;
   await req('admin', 'PUT', '/api/settings', { role_permissions: JSON.stringify(matrix) });
@@ -332,6 +332,39 @@ async function login(user, password) {
   await req('admin', 'PUT', '/api/settings', { role_permissions: JSON.stringify(matrix) });
   r = await req('mushrif', 'POST', `/api/observations/${roleObsId}/transition`, { to: 'assigned' });
   assert('إعادة الصلاحية تعيد التمكين', r.status === 200);
+
+  console.log('— بوابة المقاول —');
+  r = await login('moqawil', 'Moqawil@123');
+  assert('دخول ممثل المقاول', r.status === 200 && r.data.role === 'contractor');
+  // ملاحظة محالة على مقاول شركته (مشروع 1 — شركة البناء المتحدة) ومعتمدة
+  r = await req('rased1', 'POST', '/api/observations', {
+    project_id: 1, category: 'scaffold', responsible_party: 'contractor',
+    description: 'اختبار بوابة المقاول: سقالة دون درابزين علوي ' + Date.now(),
+  });
+  const cObs = r.data.id;
+  await req('admin', 'POST', `/api/observations/${cObs}/transition`, { to: 'approved' });
+  r = await req('moqawil', 'GET', '/api/observations');
+  assert('المقاول لا يرى الملاحظة قبل الإحالة… يراها بعد الاعتماد', r.status === 200);
+  await req('admin', 'POST', `/api/observations/${cObs}/transition`, { to: 'assigned' });
+  r = await req('moqawil', 'GET', '/api/observations');
+  assert('المقاول يرى ملاحظات شركته المحالة فقط', r.data.some(x => x.id === cObs) &&
+    r.data.every(x => x.responsible_party === 'contractor' && ![3, 4].includes(x.project_id)));
+  r = await req('moqawil', 'POST', `/api/observations/${cObs}/transition`, { to: 'in_progress' });
+  assert('المقاول يبدأ التنفيذ', r.status === 200);
+  r = await req('moqawil', 'POST', '/api/updates', {
+    entity_type: 'observation', entity_id: cObs, body: 'تم تركيب الدرابزين العلوي وتثبيته وفق المواصفات',
+  });
+  assert('المقاول يوثق الإجراء المتخذ', r.status === 201);
+  r = await req('moqawil', 'POST', `/api/observations/${cObs}/transition`, { to: 'pending_verification' });
+  assert('المقاول يطلب التحقق', r.status === 200);
+  r = await req('moqawil', 'POST', `/api/observations/${cObs}/transition`, { to: 'closed' });
+  assert('منع المقاول من اعتماد الإغلاق', r.status === 403);
+  r = await req('moqawil', 'GET', '/api/tours');
+  assert('منع المقاول من شاشة الجولات', r.status === 403);
+  r = await req('moqawil', 'GET', '/api/incidents');
+  assert('منع المقاول من الحوادث', r.status === 403);
+  r = await req('moqawil', 'POST', '/api/observations', { project_id: 1, category: 'ppe', description: 'محاولة تسجيل' });
+  assert('منع المقاول من تسجيل الملاحظات', r.status === 403);
 
   console.log(`\nالنتيجة: ${passed} ناجح / ${failed} فاشل`);
   process.exit(failed ? 1 : 0);

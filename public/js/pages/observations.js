@@ -144,7 +144,7 @@ window.Pages = window.Pages || {};
     ]);
     const canEditFields = user.role === 'admin' ||
       (o.observer_id === user.id && ['draft', 'submitted', 'rejected'].includes(o.status));
-    const transitions = (NEXT_ACTIONS[o.status] || []).filter(a => hasPerm(user, a.perm));
+    const transitions = (NEXT_ACTIONS[o.status] || []).filter(a => hasPerm(user, a));
     return new Promise(resolve => {
       const m = UI.modal({
         title: `تعديل ${o.ref}`,
@@ -289,10 +289,12 @@ window.Pages = window.Pages || {};
     closed: [{ to: 'reopened', label: 'إعادة فتح', perm: null, needNote: 'سبب إعادة الفتح', kind: 'danger' }],
   };
   // هل يملك المستخدم صلاحية هذا الانتقال؟
-  function hasPerm(user, perm) {
+  function hasPerm(user, action) {
     if (user.role === 'admin') return true;
-    if (perm === null) return !!(user.perms?.record_observations || user.perms?.close_observations);
-    return !!user.perms?.[perm];
+    // ممثل المقاول: بدء التنفيذ وطلب التحقق فقط
+    if (user.role === 'contractor') return ['in_progress', 'pending_verification'].includes(action.to);
+    if (action.perm === null) return !!(user.perms?.record_observations || user.perms?.close_observations);
+    return !!user.perms?.[action.perm];
   }
 
   async function renderDetail(el, { args, user }) {
@@ -300,7 +302,7 @@ window.Pages = window.Pages || {};
     const o = await api(`/api/observations/${id}`);
     document.getElementById('page-title').textContent = `${label('otype', o.otype)} ${o.ref}`;
     const isAdmin = user.role === 'admin';
-    const actions = (NEXT_ACTIONS[o.status] || []).filter(a => hasPerm(user, a.perm));
+    const actions = (NEXT_ACTIONS[o.status] || []).filter(a => hasPerm(user, a));
     const before = o.attachments.filter(a => a.kind === 'before' || a.kind === 'photo');
     const after = o.attachments.filter(a => a.kind === 'after' || a.kind === 'evidence');
 
