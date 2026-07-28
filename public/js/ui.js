@@ -369,6 +369,19 @@
 
   function spinner() { return `<div class="empty-state">جارٍ التحميل…</div>`; }
 
+  // دلتا المقارنة بالفترة السابقة — direction: 'higher' الأعلى أفضل / 'lower' الأقل أفضل
+  function deltaBadge(cur, prev, direction = 'higher') {
+    cur = Number(cur) || 0; prev = Number(prev) || 0;
+    if (prev === 0 && cur === 0) return `<span style="color:var(--ink-3);font-size:.68rem">﹦ دون تغيير</span>`;
+    if (prev === 0) return `<span style="color:var(--ink-3);font-size:.68rem" title="لا بيانات للفترة السابقة">جديد</span>`;
+    const pct = Math.round((cur - prev) / Math.abs(prev) * 100);
+    if (pct === 0) return `<span style="color:var(--ink-3);font-size:.68rem" title="السابقة: ${prev}">﹦ دون تغيير</span>`;
+    const improved = direction === 'higher' ? pct > 0 : pct < 0;
+    const color = improved ? 'var(--good)' : 'var(--critical)';
+    const arrow = pct > 0 ? '▲' : '▼';
+    return `<span style="color:${color};font-weight:700;font-size:.7rem" title="الفترة السابقة: ${prev}">${arrow} ${pct > 0 ? '+' : ''}${pct}%</span>`;
+  }
+
   // ===== الحالات المخصصة (تُدار من الإعدادات) =====
   let _customStatuses = null;
   async function customStatuses(force = false) {
@@ -473,6 +486,6 @@
     dataTable, bindRows, fld, select, optsFromDict, compressImage, uploadAttachments, attachmentGrid,
     getLocation, spinner, formData, SEV_CLASS, renderUpdates,
     customStatuses, invalidateCustomStatuses, tagBadge, tagSelect, fmtHijri, dualDate,
-    annotateImage, annotateImages,
+    annotateImage, annotateImages, deltaBadge,
   };
 })();

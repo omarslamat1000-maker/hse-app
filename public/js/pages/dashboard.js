@@ -21,16 +21,32 @@ window.Pages = window.Pages || {};
     </form>`;
   }
 
-  function stat(lbl, val, cls = '', suffix = '', route = '') {
+  function stat(lbl, val, cls = '', suffix = '', route = '', deltaHtml = '') {
     return `<div class="stat ${cls} ${route ? 'clickable' : ''}" ${route ? `data-goto="${route}"` : ''}>
       <div class="accent"></div><div class="lbl">${esc(lbl)}</div>
-      <div class="val">${val}${suffix ? `<small> ${suffix}</small>` : ''}</div></div>`;
+      <div class="val">${val}${suffix ? `<small> ${suffix}</small>` : ''}</div>${deltaHtml}</div>`;
+  }
+
+  // نافذتا المقارنة: الفترة الحالية والمكافئة السابقة
+  function comparePeriods(params) {
+    const day = 864e5;
+    const to = params.to ? new Date(params.to) : new Date();
+    const from = params.from ? new Date(params.from) : new Date(to - 29 * day);
+    const len = Math.max(1, Math.round((to - from) / day) + 1);
+    const prevTo = new Date(from - day), prevFrom = new Date(from - len * day);
+    const ds = x => x.toISOString().slice(0, 10);
+    return { cur: { from: ds(from), to: ds(to) }, prev: { from: ds(prevFrom), to: ds(prevTo) }, len };
   }
 
   async function render(el, { params, user }) {
-    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
-    const [d, projects, parties, insights] = await Promise.all([
+    const compareOn = localStorage.getItem('hse_compare') === '1';
+    const periods = comparePeriods(params);
+    const effParams = compareOn ? { ...params, from: periods.cur.from, to: periods.cur.to } : params;
+    const qs = new URLSearchParams(Object.entries(effParams).filter(([, v]) => v)).toString();
+    const prevQs = new URLSearchParams(Object.entries({ ...params, from: periods.prev.from, to: periods.prev.to }).filter(([, v]) => v)).toString();
+    const [d, prev, projects, parties, insights] = await Promise.all([
       api('/api/dashboard' + (qs ? `?${qs}` : '')),
+      compareOn ? api('/api/dashboard?' + prevQs) : Promise.resolve(null),
       api('/api/auth/me').then(m => m.projects),
       api('/api/parties'),
       api('/api/ai/insights'),
@@ -39,6 +55,9 @@ window.Pages = window.Pages || {};
     if (user.role === 'admin') {
       observers = (await api('/api/users')).filter(u => u.role === 'observer');
     }
+
+    // دلتا مقارنة (تُخفى إن كانت المقارنة موقوفة)
+    const dl = (cur, prevVal, dir) => compareOn && prev ? `<div class="delta">${UI.deltaBadge(cur, prevVal, dir)}</div>` : '';
 
     const o = d.observations, t = d.tours;
     el.innerHTML = `
@@ -52,21 +71,37 @@ window.Pages = window.Pages || {};
         <a class="btn sm secondary" href="#/observations?category=health">ملاحظات الصحة المهنية</a>
       </div>` : ''}
       ${filterBar(params, projects, parties, observers)}
+      <div class="btn-row no-print" style="margin-bottom:1rem">
+        <button type="button" class="chip ${compareOn ? 'on' : ''}" id="compare-toggle">📊 مقارنة بالفترة السابقة</button>
+        ${compareOn ? `<span style="font-size:.72rem;color:var(--ink-3)">
+          ${UI.fmtDate(periods.cur.from)} ← ${UI.fmtDate(periods.cur.to)} مقابل ${UI.fmtDate(periods.prev.from)} ← ${UI.fmtDate(periods.prev.to)}</span>` : ''}
+      </div>
       <div class="grid cols-6">
         ${stat('المشاريع النشطة', fmtNum(d.projects.active), 'good', '', '#/projects')}
-        ${stat('نسبة تنفيذ الجولات', t.execution_rate, t.execution_rate >= 80 ? 'good' : t.execution_rate >= 60 ? 'warn' : 'critical', '%', '#/tours')}
-        ${stat('ملاحظات مفتوحة', fmtNum(o.open), o.open > 50 ? 'warn' : '', '', '#/observations?open_only=1')}
-        ${stat('حرجة مفتوحة', fmtNum(o.critical_open), o.critical_open ? 'critical' : 'good', '', '#/observations?severity=critical&open_only=1')}
-        ${stat('متجاوزة الاستحقاق', fmtNum(o.overdue), o.overdue ? 'critical' : 'good', '', '#/observations?escalated=1')}
-        ${stat('نسبة الالتزام', d.compliance_rate, d.compliance_rate >= 85 ? 'good' : d.compliance_rate >= 70 ? 'warn' : 'critical', '%')}
+        ${stat('نسبة تنفيذ الجولات', t.execution_rate, t.execution_rate >= 80 ? 'good' : t.execution_rate >= 60 ? 'warn' : 'critical', '%', '#/tours',
+          dl(t.execution_rate, prev?.tours.execution_rate, 'higher'))}
+        ${stat('ملاحظات مفتوحة', fmtNum(o.open), o.open > 50 ? 'warn' : '', '', '#/observations?open_only=1',
+          dl(o.total, prev?.observations.total, 'lower'))}
+        ${stat('حرجة مفتوحة', fmtNum(o.critical_open), o.critical_open ? 'critical' : 'good', '', '#/observations?severity=critical&open_only=1',
+          dl(o.critical_open, prev?.observations.critical_open, 'lower'))}
+        ${stat('متجاوزة الاستحقاق', fmtNum(o.overdue), o.overdue ? 'critical' : 'good', '', '#/observations?escalated=1',
+          dl(o.overdue, prev?.observations.overdue, 'lower'))}
+        ${stat('نسبة الالتزام', d.compliance_rate, d.compliance_rate >= 85 ? 'good' : d.compliance_rate >= 70 ? 'warn' : 'critical', '%', '',
+          dl(d.compliance_rate, prev?.compliance_rate, 'higher'))}
       </div>
       <div class="grid cols-6" style="margin-top:1rem">
-        ${stat('الحوادث المسجلة', fmtNum(d.incidents.total), d.incidents.total ? 'warn' : 'good', '', '#/incidents')}
-        ${stat('شبه الحادثة', fmtNum(d.incidents.near_miss), 'info', '', '#/incidents')}
-        ${stat('إجراءات مفتوحة', fmtNum(d.actions.open), '', '', '#/actions')}
-        ${stat('إجراءات متأخرة', fmtNum(d.actions.overdue), d.actions.overdue ? 'critical' : 'good', '', '#/actions?overdue=1')}
-        ${stat('إغلاق ضمن المدة', o.on_time_closure_rate, o.on_time_closure_rate >= 80 ? 'good' : 'warn', '%')}
-        ${stat('متوسط زمن المعالجة', o.avg_closure_days, '', 'يوم')}
+        ${stat('الحوادث المسجلة', fmtNum(d.incidents.total), d.incidents.total ? 'warn' : 'good', '', '#/incidents',
+          dl(d.incidents.total, prev?.incidents.total, 'lower'))}
+        ${stat('شبه الحادثة', fmtNum(d.incidents.near_miss), 'info', '', '#/incidents',
+          dl(d.incidents.near_miss, prev?.incidents.near_miss, 'higher'))}
+        ${stat('إجراءات مفتوحة', fmtNum(d.actions.open), '', '', '#/actions',
+          dl(d.actions.total, prev?.actions.total, 'lower'))}
+        ${stat('إجراءات متأخرة', fmtNum(d.actions.overdue), d.actions.overdue ? 'critical' : 'good', '', '#/actions?overdue=1',
+          dl(d.actions.overdue, prev?.actions.overdue, 'lower'))}
+        ${stat('إغلاق ضمن المدة', o.on_time_closure_rate, o.on_time_closure_rate >= 80 ? 'good' : 'warn', '%', '',
+          dl(o.on_time_closure_rate, prev?.observations.on_time_closure_rate, 'higher'))}
+        ${stat('متوسط زمن المعالجة', o.avg_closure_days, '', 'يوم', '',
+          dl(o.avg_closure_days, prev?.observations.avg_closure_days, 'lower'))}
       </div>
 
       <div class="grid cols-2" style="margin-top:1rem">
@@ -144,6 +179,10 @@ window.Pages = window.Pages || {};
       location.hash = '#/dashboard' + (q ? `?${q}` : '');
     });
     el.querySelector('#dash-reset').onclick = () => { location.hash = '#/dashboard'; };
+    el.querySelector('#compare-toggle').onclick = () => {
+      localStorage.setItem('hse_compare', compareOn ? '0' : '1');
+      App.refreshRoute();
+    };
     el.querySelectorAll('[data-goto]').forEach(s => s.addEventListener('click', () => { location.hash = s.dataset.goto; }));
 
     // الرسوم — ألوان الخطورة الثابتة (حالة، ليست سلاسل)
@@ -201,8 +240,16 @@ window.Pages = window.Pages || {};
   // ===== صفحة مؤشرات الأداء =====
   async function renderKpis(el, { params }) {
     const projects = (await api('/api/auth/me')).projects;
-    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v)).toString();
-    const kpis = await api('/api/kpis' + (qs ? `?${qs}` : ''));
+    const compareOn = localStorage.getItem('hse_compare') === '1';
+    const periods = comparePeriods(params);
+    const effParams = compareOn ? { ...params, from: periods.cur.from, to: periods.cur.to } : params;
+    const qs = new URLSearchParams(Object.entries(effParams).filter(([, v]) => v)).toString();
+    const prevQs = new URLSearchParams(Object.entries({ ...params, from: periods.prev.from, to: periods.prev.to }).filter(([, v]) => v)).toString();
+    const [kpis, prevKpis] = await Promise.all([
+      api('/api/kpis' + (qs ? `?${qs}` : '')),
+      compareOn ? api('/api/kpis?' + prevQs) : Promise.resolve(null),
+    ]);
+    const prevOf = k => prevKpis?.find(x => x.key === k.key);
     const stCls = { good: 'b-good', warning: 'b-medium', critical: 'b-critical' };
     el.innerHTML = `
       <form class="filters no-print" id="kpi-filters">
@@ -210,8 +257,11 @@ window.Pages = window.Pages || {};
         ${fld('إلى تاريخ', `<input type="date" name="to" value="${esc(params.to || '')}">`)}
         ${fld('المشروع', select('project_id', projects.map(p => ({ value: p.id, label: p.name })), params.project_id))}
         <button class="btn sm" type="submit">تطبيق</button>
+        <button type="button" class="chip ${compareOn ? 'on' : ''}" id="kpi-compare">📊 مقارنة بالفترة السابقة</button>
         <button class="btn sm secondary no-print" type="button" onclick="window.print()">🖨 طباعة</button>
       </form>
+      ${compareOn ? `<div style="font-size:.72rem;color:var(--ink-3);margin:-.4rem 0 .8rem" class="no-print">
+        ${UI.fmtDate(periods.cur.from)} ← ${UI.fmtDate(periods.cur.to)} مقابل ${UI.fmtDate(periods.prev.from)} ← ${UI.fmtDate(periods.prev.to)}</div>` : ''}
       <div class="print-header"><div class="o">تقرير مؤشرات الأداء — منصة السلامة</div><div class="m">${UI.dualDate()}</div></div>
       <div class="grid cols-3">
         ${kpis.map(k => `
@@ -220,7 +270,8 @@ window.Pages = window.Pages || {};
             <h3 style="font-size:.9rem;margin:0">${esc(k.name)}</h3>
             <span class="badge ${stCls[k.status]}">${label('kpi_status', k.status)}</span>
           </div>
-          <div style="font-size:2rem;font-weight:800;margin:.5rem 0 .2rem">${k.value}<small style="font-size:.9rem;color:var(--ink-3)"> ${esc(k.unit)}</small></div>
+          <div style="font-size:2rem;font-weight:800;margin:.5rem 0 .2rem">${k.value}<small style="font-size:.9rem;color:var(--ink-3)"> ${esc(k.unit)}</small>
+            ${compareOn && prevOf(k) ? `<span style="margin-inline-start:.5rem">${UI.deltaBadge(k.value, prevOf(k).value, k.direction)}</span>` : ''}</div>
           <div style="font-size:.74rem;color:var(--ink-3)">المستهدف: ${k.value !== undefined ? (k.direction === 'higher' ? '≥' : '≤') : ''} ${k.target} ${esc(k.unit)}</div>
           <div class="progressbar" style="margin:.6rem 0">
             <div style="width:${Math.min(100, k.direction === 'higher' ? (k.value / k.target) * 100 : (k.target / Math.max(k.value, 0.01)) * 100)}%;background:var(--${k.status === 'good' ? 'good' : k.status === 'warning' ? 'warn' : 'critical'})"></div>
@@ -239,6 +290,10 @@ window.Pages = window.Pages || {};
       const q = new URLSearchParams(Object.entries(d).filter(([, v]) => v)).toString();
       location.hash = '#/kpis' + (q ? `?${q}` : '');
     });
+    el.querySelector('#kpi-compare').onclick = () => {
+      localStorage.setItem('hse_compare', compareOn ? '0' : '1');
+      App.refreshRoute();
+    };
   }
 
   window.Pages.dashboard = { title: 'لوحة المعلومات التنفيذية', render };
