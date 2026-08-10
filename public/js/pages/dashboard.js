@@ -170,6 +170,26 @@ window.Pages = window.Pages || {};
         <div id="insights"></div>
       </div>`;
 
+    // عدّ تصاعدي للأرقام — لحظة الحركة الوحيدة المنسقة (تُحترم تفضيلات تقليل الحركة)
+    if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      el.querySelectorAll('.stat .val').forEach(v => {
+        const node = v.childNodes[0];
+        if (!node || node.nodeType !== 3) return;
+        const raw = node.textContent.trim().replace(/,/g, '');
+        const target = parseFloat(raw);
+        if (isNaN(target) || target === 0) return;
+        const dec = /\./.test(raw) ? 1 : 0;
+        const t0 = performance.now();
+        (function tick(t) {
+          const p = Math.min(1, (t - t0) / 650);
+          const eased = 1 - Math.pow(1 - p, 3);
+          node.textContent = (target * eased).toLocaleString('en-US',
+            { maximumFractionDigits: dec, minimumFractionDigits: dec });
+          if (p < 1) requestAnimationFrame(tick);
+        })(t0);
+      });
+    }
+
     // الفلاتر
     const form = el.querySelector('#dash-filters');
     form.addEventListener('submit', e => {

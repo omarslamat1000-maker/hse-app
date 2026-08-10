@@ -28,6 +28,9 @@
   --s1: #008300; --s2: #2a78d6; --s3: #eda100; --s4: #4a3aa7;
   --s5: #1baf7a; --s6: #e34948; --s7: #e87ba4; --s8: #eb6834;
   /* ألوان الحالة */
+  /* عنبر السلامة — لون شريط التحذير (العنصر التوقيعي) */
+  --amber: #f5a800;
+  --hazard: repeating-linear-gradient(-45deg, var(--amber) 0 7px, var(--brand-900) 7px 14px);
   --good: #0ca30c; --warn: #b97900; --serious: #c25a2c; --critical: #d03b3b;
   --good-soft: #e3f4e3; --warn-soft: #fdf2d9; --serious-soft: #fbe9e0; --critical-soft: #fbe3e3;
   --info-soft: #e3edf9; --info: #2a78d6;
@@ -37,6 +40,8 @@
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
+  --amber: #f5a800;
+  --hazard: repeating-linear-gradient(-45deg, var(--amber) 0 7px, #0a1a10 7px 14px);
   --page: #0e1512; --surface: #17211b; --surface-2: #1c2721;
   --ink: #eef4f0; --ink-2: #b3c2ba; --ink-3: #7d8a83;
   --hairline: #26332c; --grid: #223028; --shadow: 0 1px 3px rgba(0,0,0,.4);
@@ -74,6 +79,12 @@ h1, h2, h3, h4 { margin: 0 0 .5rem; font-weight: 700; }
   box-shadow: 0 24px 70px rgba(0, 0, 0, .5);
   border: 1px solid rgba(255, 255, 255, .12);
   width: min(420px, 100%); padding: 2.2rem;
+  position: relative; overflow: hidden;
+}
+/* حزام التحذير — توقيع المنصة على بوابة الدخول */
+.login-card::before {
+  content: ''; position: absolute; top: 0; inset-inline: 0; height: 6px;
+  background: var(--hazard);
 }
 @media (max-width: 640px) {
   .login-wrap { background-attachment: scroll; }
@@ -102,8 +113,14 @@ h1, h2, h3, h4 { margin: 0 0 .5rem; font-weight: 700; }
 }
 .nav a svg { flex-shrink: 0; opacity: .75; }
 .nav a:hover { background: var(--surface-2); color: var(--ink); }
+.nav a { position: relative; }
 .nav a.active { background: var(--brand-soft); color: var(--brand); font-weight: 700; }
 .nav a.active svg { opacity: 1; }
+/* مؤشر التنقل النشط — لمسة الحزام */
+.nav a.active::before {
+  content: ''; position: absolute; inset-inline-start: -0.6rem; inset-block: 6px; width: 4px;
+  border-radius: 4px; background: var(--hazard);
+}
 .nav .badge-mini { margin-inline-start: auto; background: var(--critical); color: #fff; font-size: .66rem; border-radius: 99px; padding: 1px 7px; font-weight: 700; }
 .sidebar-footer { padding: .8rem 1rem; border-top: 1px solid var(--hairline); font-size: .75rem; color: var(--ink-3); }
 
@@ -112,7 +129,7 @@ h1, h2, h3, h4 { margin: 0 0 .5rem; font-weight: 700; }
   display: flex; align-items: center; gap: .8rem; padding: .65rem 1.2rem;
   background: var(--surface); border-bottom: 1px solid var(--hairline); position: sticky; top: 0; z-index: 40;
 }
-.topbar .title { font-weight: 800; font-size: 1.05rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.topbar .title { font-weight: 800; font-size: 1.12rem; letter-spacing: -.2px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .icon-btn {
   background: none; border: 1px solid var(--hairline); border-radius: var(--radius-sm); cursor: pointer;
   width: 38px; height: 38px; display: grid; place-items: center; color: var(--ink-2); position: relative; flex-shrink: 0;
@@ -150,14 +167,18 @@ body.is-offline .offline-bar { display: block; }
   background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--radius);
   padding: .9rem 1rem; box-shadow: var(--shadow); position: relative; overflow: hidden;
 }
-.stat .lbl { font-size: .76rem; color: var(--ink-2); margin-bottom: .3rem; }
-.stat .val { font-size: 1.65rem; font-weight: 800; line-height: 1.1; }
+.stat .lbl { font-size: .74rem; color: var(--ink-2); margin-bottom: .3rem; letter-spacing: .2px; }
+.stat .val { font-size: 1.7rem; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .stat .val small { font-size: .85rem; font-weight: 600; color: var(--ink-3); }
 .stat .delta { font-size: .72rem; margin-top: .25rem; color: var(--ink-3); }
 .stat .accent { position: absolute; inset-inline-start: 0; inset-block: 0; width: 4px; background: var(--brand); }
-.stat.warn .accent { background: var(--warn); } .stat.critical .accent { background: var(--critical); }
+.stat.warn .accent { background: var(--warn); }
+/* البطاقات الحرجة تحمل حزام التحذير — الشريط يعني الخطر ولا يظهر إلا حيث الخطر */
+.stat.critical .accent { width: 6px; background: var(--hazard); }
 .stat.good .accent { background: var(--good); } .stat.info .accent { background: var(--info); }
-.stat.clickable { cursor: pointer; } .stat.clickable:hover { border-color: var(--brand); }
+.stat.clickable { cursor: pointer; }
+.stat.clickable:hover { border-color: var(--brand); transform: translateY(-2px); box-shadow: 0 6px 18px rgba(20,32,26,.10); }
+.stat { transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
 
 /* ===== الجداول ===== */
 .table-wrap { overflow-x: auto; border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--surface); }
@@ -166,7 +187,7 @@ table.data th {
   text-align: right; padding: .6rem .8rem; background: var(--surface-2); color: var(--ink-2);
   font-size: .74rem; border-bottom: 1px solid var(--hairline); white-space: nowrap; position: sticky; top: 0;
 }
-table.data td { padding: .55rem .8rem; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+table.data td { padding: .55rem .8rem; border-bottom: 1px solid var(--grid); vertical-align: middle; font-variant-numeric: tabular-nums; }
 table.data tr:last-child td { border-bottom: 0; }
 table.data tr.rowlink { cursor: pointer; }
 table.data tr.rowlink:hover td { background: var(--brand-soft); }
@@ -372,9 +393,32 @@ textarea { resize: vertical; min-height: 84px; }
   table.data { font-size: 10px; min-width: 0; }
   .chart-box { height: 240px; }
 }
-.print-header { display: none; align-items: center; gap: 1rem; border-bottom: 3px solid var(--brand); padding-bottom: .8rem; margin-bottom: 1rem; }
+.print-header { display: none; align-items: center; gap: 1rem; border-bottom: none; padding-bottom: .8rem; margin-bottom: 1rem; position: relative; }
+.print-header::after { content: ''; position: absolute; bottom: 0; inset-inline: 0; height: 4px; background: var(--hazard); }
 .print-header .o { font-weight: 800; font-size: 1.05rem; }
 .print-header .m { font-size: .75rem; color: var(--ink-2); margin-inline-start: auto; text-align: left; }
+
+/* ===== الحركة المنسقة: ظهور البطاقات تباعاً ===== */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.grid .stat, .grid .card { animation: rise-in .38s ease both; }
+.grid > :nth-child(2) { animation-delay: .05s; }
+.grid > :nth-child(3) { animation-delay: .1s; }
+.grid > :nth-child(4) { animation-delay: .15s; }
+.grid > :nth-child(5) { animation-delay: .2s; }
+.grid > :nth-child(6) { animation-delay: .25s; }
+
+.card { transition: box-shadow .18s ease; }
+.btn { transition: background .15s ease, transform .1s ease; }
+.btn:active { transform: scale(.97); }
+
+/* أرضية الوصول: حلقة تركيز واضحة + احترام تقليل الحركة */
+:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
 
 /* ===== التجاوب ===== */
 .menu-toggle { display: none; }
